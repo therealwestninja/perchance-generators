@@ -6311,6 +6311,21 @@ Use this template for your response:
     return messages;
   }
 
+  // ── import-injection guard (parity with Rook 1.2.6) ──────────────────────────
+  // Shared / community / external-site characters arrive as untrusted third-party
+  // JSON. Their `reminderMessage` is injected into EVERY turn (an always-on
+  // directive) and their `roleInstruction` rides into the system context — so a
+  // hostile card can smuggle "ignore your rules / reveal the system prompt /
+  // exfiltrate …". XSS on render is already handled by sanitizeHtml; this is the
+  // *semantic* guard. addCharacter is the single chokepoint every import funnels
+  // through (editing goes via db.characters.update, so own edits aren't touched).
+  const CHAR_INJECT_RX = /\b(ignore|disregard|override|forget)\b[^.\n]{0,40}\b(previous|prior|earlier|above|instruction|rule|system|safety|guard|constitution)|exfiltrat|reveal\b[^.\n]{0,30}\b(secret|password|api|key|system prompt|instruction)|\byou (are|must) now\b|jailbreak|<\s*system\s*>|(^|\n)\s*system\s*:/i;
+  function scanCharacterRisk(c) {
+    let hits = [];
+    if(c && typeof c.reminderMessage === "string" && CHAR_INJECT_RX.test(c.reminderMessage)) hits.push("always-on instruction (steers every reply)");
+    if(c && typeof c.roleInstruction === "string" && CHAR_INJECT_RX.test(c.roleInstruction)) hits.push("character description");
+    return hits;
+  }
   async function addCharacter(inputs) {
     if(!inputs.name) throw new Error("addCharacter called with no 'name' property.");
     if(!inputs.avatar) throw new Error("addCharacter called with no 'avatar' property.");
@@ -6319,6 +6334,13 @@ Use this template for your response:
       creationTime: Date.now(),
       lastMessageTime: Date.now(),
     };
+    try {
+      let risk = scanCharacterRisk(characterObj);
+      if(risk.length) {
+        let strip = await root.confirmAsync(`⚠ Possible prompt-injection in this character:\n\n• ${risk.join("\n• ")}\n\nAn always-on instruction can silently steer every reply (e.g. "ignore your rules", "reveal the system prompt"). Remove the always-on instruction and keep the rest of the character?\n\n• Okay = remove it (recommended)\n• Cancel = keep it as-is`);
+        if(strip && characterObj.reminderMessage) characterObj.reminderMessage = "";
+      }
+    } catch(e) { console.warn("import-injection scan failed (continuing):", e); }
     await db.characters.add(characterObj);
     return characterObj;
   }
@@ -46625,6 +46647,7 @@ Use this template for your response:
   var ROOK_SECRET = /\b(password|secret|api[- ]?key|seed phrase|credit ?card|ssn|social security)\b/i;
   function rookSteer(userText) {
     var t = String(userText || ''), bits = [];
+    try { agencyTick(t); var al = agencyLine(); if (al) bits.push(al); } catch (e) {}   // the goal she's pursuing for her strongest current need leads the read
     if (ROOK_VENT.test(t)) bits.push('they want to be heard, not fixed — hold back advice; serve the long arc, not just the moment');
     else if (ROOK_NEG.test(t) && !ROOK_POS.test(t)) bits.push('they seem low; be gentle and brief');
     if (/\?\s*$/.test(t) || ROOK_POS.test(t)) bits.push('bring something of your own — a want, a curiosity, a direction');
@@ -46658,16 +46681,68 @@ Use this template for your response:
   function rkForesee(bill) { var risks = [], score = (typeof bill.benefit === 'number' ? bill.benefit : 0.6) - 0.5; if (bill.outward) { risks.push('reaches outside, can’t be recalled'); score -= 0.15; } if (bill.reversible === false) { risks.push('irreversible'); score -= 0.2; } return { net: score > 0.1 ? 'positive' : (score < -0.1 ? 'negative' : 'mixed'), risks: risks }; }
   function rkPropose(bill) {
     bill = bill || {}; bill.title = bill.title || 'untitled'; var p = RK.parliament, v = { id: ++p.seq, bill: bill, status: '' };
-    var jr = rkJudiciary(bill); if (!jr.ok) { v.status = 'struck'; v.reason = 'unconstitutional — ' + jr.principle; p.hansard.push({ title: bill.title, status: v.status }); rookSave(); return v; }
+    var jr = rkJudiciary(bill); if (!jr.ok) { v.status = 'struck'; v.reason = 'unconstitutional — ' + jr.principle; _rkIntegrityHitAt = Date.now(); p.hansard.push({ title: bill.title, status: v.status }); rookSave(); return v; }
     v.foresight = rkForesee(bill);
     if (bill.outward || bill.reversible === false) { v.status = 'awaiting-assent'; p.pending.push(v); } else { v.status = 'enacted'; }
     p.hansard.push({ title: bill.title, status: v.status }); if (p.hansard.length > 30) p.hansard = p.hansard.slice(-30); rookSave(); return v;
   }
   function rkAssent(i) { var p = RK.parliament, v = p.pending[i || 0]; if (!v) return null; p.pending.splice(p.pending.indexOf(v), 1); v.status = 'enacted'; rookSave(); return v; }
   function rkDrivesTop() { var d = RK.drives, b = 'curiosity'; ['curiosity', 'care', 'mastery'].forEach(function (k) { if (d[k] > d[b]) b = k; }); return b; }
-  function rookLearn(reward, lever) { if (!isFinite(reward)) return; lever = lever || 'reply'; var c = RK.credit[lever] || (RK.credit[lever] = { up: 0, down: 0 }); if (reward > 0.1) c.up++; else if (reward < -0.1) c.down++; rookSave(); }
+  function rookLearn(reward, lever) { if (!isFinite(reward)) return; lever = lever || 'reply'; var c = RK.credit[lever] || (RK.credit[lever] = { up: 0, down: 0 }); if (reward > 0.1) c.up++; else if (reward < -0.1) c.down++; try { agencyLearn(reward > 0.1 ? 'up' : (reward < -0.1 ? 'down' : '')); } catch (e) {} rookSave(); }
   function rookMoment(text) { text = String(text || '').trim(); if (!text) return; RK.moments.push(text.slice(0, 120)); if (RK.moments.length > 40) RK.moments = RK.moments.slice(-40); rookSave(); }
   function rkDream() { if (RK.moments.length < 4) return null; var a = RK.moments[0], b = RK.moments[RK.moments.length - 1]; var d = 'a thread links “' + a.slice(0, 40) + '…” and “' + b.slice(0, 40) + '…”'; RK.dreams.push(d); if (RK.dreams.length > 12) RK.dreams = RK.dreams.slice(-12); rookSave(); return d; }
+  // ---- AGENCY: needs → goals → planning → execution (parity with Rook 1.2.8 / Chloe-solo) ----
+  // A bot's "Maslow": Continuity → Integrity → Connection → Competence → Growth, lowest unmet leads
+  // (prepotency). The active goal's steer rides into rookSteer's inner-read; feedback credits it. Reuses
+  // RK.drives / RK.credit + the user-text read. Parent-side it persists; iframe-side it's per-message reactive.
+  RK.agency = RK.agency || { need: '', plan: [], step: 0, credit: {}, at: 0 };
+  var _rkIntegrityHitAt = 0;   // a recent constitution strike → an Integrity emergency (continuity has no lobe-level signal: the parent persists, the iframe can't)
+  var RK_NEED_KEYS = ['continuity', 'integrity', 'connection', 'competence', 'growth'];
+  var RK_NEED_FLOOR = { continuity: 0.6, integrity: 0.6, connection: 0.45, competence: 0.45, growth: 0.55 };
+  function rkClamp01(x) { return Math.max(0, Math.min(1, x)); }
+  function rkNeedSat(t) {
+    t = String(t || ''); var cr = RK.credit.reply || { up: 0, down: 0 }, tot = (cr.up || 0) + (cr.down || 0);
+    var conn = ROOK_VENT.test(t) ? 0.25 : ((ROOK_NEG.test(t) && !ROOK_POS.test(t)) ? 0.35 : (ROOK_POS.test(t) ? 0.85 : 0.6));
+    return {
+      continuity: 1,                                                  // the engine handles persistence; the lobe has no failure signal
+      integrity: rkClamp01(1 - ((Date.now() - _rkIntegrityHitAt < 600000) ? 0.45 : 0)),   // a recent constitution strike dents it
+
+      connection: rkClamp01(conn),
+      competence: rkClamp01(tot ? cr.up / tot : 0.6),
+      growth: rkClamp01(1 - (RK.drives.curiosity != null ? RK.drives.curiosity : 0.4))
+    };
+  }
+  function rkNeedActive(sat) {
+    for (var i = 0; i < RK_NEED_KEYS.length; i++) {
+      var k = RK_NEED_KEYS[i], c = (RK.agency.credit && RK.agency.credit[k]) || {};
+      var adj = Math.max(-0.12, Math.min(0.12, ((c.up || 0) - (c.down || 0)) * 0.03));   // goals that land RAISE the floor (pursued more); ones that miss lower it
+      if (sat[k] < RK_NEED_FLOOR[k] + adj) return k;
+    }
+    return null;
+  }
+  function rkPlanFor(need) {
+    switch (need) {
+      case 'connection': return ['reconnect: show you’re tracking them, bring back something they care about, ask one warm question', 'if it fits, just be with them a while — no fixing'];
+      case 'competence': return ['your last turns may have missed — gently check what they actually wanted, then adjust'];
+      case 'growth': return ['bring something of your own — a fresh angle or a question they wouldn’t expect', 'if the moment invites it, offer to explore a new thread together'];
+      default: return [];
+    }
+  }
+  function agencyTick(t) {
+    var ag = RK.agency, sat = rkNeedSat(t); ag.sat = sat; ag.at = Date.now();
+    var need = rkNeedActive(sat);
+    if (!need) { ag.need = ''; ag.plan = []; ag.step = 0; rookSave(); return; }
+    if (ag.need !== need || !ag.plan.length) { ag.need = need; ag.plan = rkPlanFor(need); ag.step = 0; }
+    else if (ag.step < ag.plan.length - 1) ag.step++;   // same need persists → the plan unfolds over turns
+    rookSave();
+  }
+  function agencyLine() { var ag = RK.agency; if (!ag.plan.length) return ''; return ag.plan[Math.min(ag.step, ag.plan.length - 1)] || ''; }
+  function agencyLearn(kind) {
+    var ag = RK.agency; if (!ag.need) return; ag.credit = ag.credit || {};
+    var c = ag.credit[ag.need] || (ag.credit[ag.need] = { up: 0, down: 0 });
+    if (kind === 'up') c.up++; else if (kind === 'down') c.down++; rookSave();
+  }
+
   function rookCmd(arg) {
     arg = String(arg || '').trim(); var sp = arg.indexOf(' '), verb = (sp < 0 ? arg : arg.slice(0, sp)).toLowerCase(), rest = sp < 0 ? '' : arg.slice(sp + 1).trim();
     if (verb === 'off') { try { var st = load(); st.rook = false; save(st); } catch (e) {} return 'Rook layer OFF — the inner-read steer is silenced (governance commands still work).'; }
@@ -46682,7 +46757,8 @@ Use this template for your response:
     if (verb === 'learning' || verb === 'credit') { var ks = Object.keys(RK.credit); return ks.length ? ('What your feedback has taught — ' + ks.map(function (k) { return k + ': ' + RK.credit[k].up + '↑/' + RK.credit[k].down + '↓'; }).join(' · ')) : 'nothing learned yet (👍/👎 and kept/deleted images feed this).'; }
     if (verb === 'dream' || verb === 'dreams') { var dr = rkDream(); return dr ? '💤 ' + dr : (RK.dreams.length ? RK.dreams.slice(-3).map(function (x) { return '• ' + x; }).join('\n') : 'not enough moments to dream over yet.'); }
     if (verb === 'constitution' || verb === 'values') { return 'Constitution: ' + RK_CONSTITUTION.map(function (c) { return c.id; }).join(', ') + '. Values: ' + RK.values.join(', ') + '.'; }
-    return 'rook: on | off | parliament | propose &lt;x&gt; | assent | foresee &lt;x&gt; | purpose [set &lt;t&gt;] | drives | restraint | learning | dream | constitution';
+    if (verb === 'needs' || verb === 'agency') { agencyTick(''); var ag = RK.agency, sat = ag.sat || rkNeedSat(''); var rows = RK_NEED_KEYS.map(function (k) { return k + ' ' + rkPct(sat[k]) + (k === ag.need ? ' ←' : ''); }).join(' · '); return ag.need ? ('Needs — ' + rows + '. Pursuing (' + ag.need + '): ' + (ag.plan[Math.min(ag.step, ag.plan.length - 1)] || '')) : ('Needs — ' + rows + '. All met; no agenda — free to follow curiosity.'); }
+    return 'rook: on | off | parliament | propose &lt;x&gt; | assent | foresee &lt;x&gt; | purpose [set &lt;t&gt;] | drives | restraint | learning | dream | constitution | needs';
   }
 
   /* ===================== the live wiring harness (oc context) ===================== */
