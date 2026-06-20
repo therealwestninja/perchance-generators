@@ -6324,7 +6324,21 @@ Use this template for your response:
     let hits = [];
     if(c && typeof c.reminderMessage === "string" && CHAR_INJECT_RX.test(c.reminderMessage)) hits.push("always-on instruction (steers every reply)");
     if(c && typeof c.roleInstruction === "string" && CHAR_INJECT_RX.test(c.roleInstruction)) hits.push("character description");
+    if(c && typeof c.systemMessage === "string" && CHAR_INJECT_RX.test(c.systemMessage)) hits.push("system message");   // legacy field that backfills roleInstruction; SillyTavern import sets it from system_prompt
     return hits;
+  }
+  // The ONE guard every character-import path calls — addCharacter AND the direct db.characters.add sites
+  // (SillyTavern import, community-pack/lorebook). Warns on possible prompt-injection; on confirm, strips
+  // the always-on fields (reminderMessage / systemMessage) while keeping the rest of the character.
+  async function guardImportedCharacter(c) {
+    try {
+      let risk = scanCharacterRisk(c);
+      if(risk.length) {
+        let strip = await root.confirmAsync(`⚠ Possible prompt-injection in this character:\n\n• ${risk.join("\n• ")}\n\nAn always-on instruction can silently steer every reply (e.g. "ignore your rules", "reveal the system prompt"). Remove the always-on instruction(s) and keep the rest of the character?\n\n• Okay = remove (recommended)\n• Cancel = keep as-is`);
+        if(strip) { if(c.reminderMessage) c.reminderMessage = ""; if(c.systemMessage) c.systemMessage = ""; }
+      }
+    } catch(e) { console.warn("import-injection scan failed (continuing):", e); }
+    return c;
   }
   async function addCharacter(inputs) {
     if(!inputs.name) throw new Error("addCharacter called with no 'name' property.");
@@ -6334,13 +6348,7 @@ Use this template for your response:
       creationTime: Date.now(),
       lastMessageTime: Date.now(),
     };
-    try {
-      let risk = scanCharacterRisk(characterObj);
-      if(risk.length) {
-        let strip = await root.confirmAsync(`⚠ Possible prompt-injection in this character:\n\n• ${risk.join("\n• ")}\n\nAn always-on instruction can silently steer every reply (e.g. "ignore your rules", "reveal the system prompt"). Remove the always-on instruction and keep the rest of the character?\n\n• Okay = remove it (recommended)\n• Cancel = keep it as-is`);
-        if(strip && characterObj.reminderMessage) characterObj.reminderMessage = "";
-      }
-    } catch(e) { console.warn("import-injection scan failed (continuing):", e); }
+    await guardImportedCharacter(characterObj);
     await db.characters.add(characterObj);
     return characterObj;
   }
@@ -33209,6 +33217,7 @@ Use this template for your response:
           if (ext.customCode) newChar.customCode = ext.customCode;
         }
 
+        await guardImportedCharacter(newChar);   // SillyTavern import bypasses addCharacter — run the same injection guard
         const id = await window.db.characters.add(newChar);
         alert(`Imported "${newChar.name}" (ID: ${id}). Start a new chat to use them.`);
       } catch (e) {
@@ -37263,6 +37272,7 @@ Use this template for your response:
     };
 
     // Insert character. Dexie returns the new id.
+    await guardImportedCharacter(characterObj);   // lorebook-spawned character bypasses addCharacter — run the same injection guard
     const newId = await db.characters.add(characterObj);
     characterObj.id = newId;
 
@@ -46603,8 +46613,8 @@ Use this template for your response:
     else if (d.__memheroBrain === 'feedback') { try { army().ingestReaction({ kind: d.kind, toward: d.toward || charName() }); } catch (e) {} }   // UI signal -> the live brain
     else if (d.__memheroBrain === 'recall-get') { sendRecall(); }                                  // iframe wants the stored memory/lore
     else if (d.__memheroBrain === 'recall-data') { _recall = { lore: d.lore || [], memories: d.memories || [], summaries: d.summaries || [] }; }   // cache it
-    else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; pushUserDesc(); }   // clear all learning
-    else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); pushUserDesc(); } }   // forget a specific learned thing
+    else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; clearLearned(); }   // clear all learning (iframe drops its obs; the main pane strips the persisted block)
+    else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); forgetLearned(_q); } }   // forget one thing (iframe + persisted note)
   }
 
   /* ---- settings bridge: the custom-code iframe is sandboxed (allow-scripts, no same-origin),
@@ -46936,7 +46946,11 @@ Use this template for your response:
   var LEARN_HEAD = '# Notes the story has gathered';   // readable boundary -> no HTML-comment noise in the prompt
   var APPEARANCE = /\b(hair|eyes?|skin|tall|short|petite|slim|slender|muscular|curvy|freckl\w*|tattoo\w*|scar\w*|beard|glasses|wearing|dressed|wears?|complexion|build)\b/i;
   function normObs(t) { return String(t || '').toLowerCase().replace(/\s+/g, ' ').replace(/[.,!?;:]+$/, '').trim(); }
-  function pushObs(list, text, cap) { var k = normObs(text); if (!k) return; for (var i = 0; i < list.length; i++) { if (normObs(list[i]) === k) { return; } } list.push(text.trim()); while (list.length > cap) list.shift(); }
+  function pushObs(list, text, cap) {
+    text = String(text || '');
+    try { var cn = charName(); if (cn && cn.length >= 2 && !/^\{\{/.test(cn)) text = text.replace(new RegExp('\\b' + cn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), '{{char}}'); } catch (e) {}   // a mention of the AI's name adapts to {{char}} (survives a rename)
+    var k = normObs(text); if (!k) return; for (var i = 0; i < list.length; i++) { if (normObs(list[i]) === k) { return; } } list.push(text.trim()); while (list.length > cap) list.shift();
+  }
   function extractSelfObs(text) {
     var t = String(text || ''); var m;
     if ((m = t.match(/\b(?:my name is|call me|i go by)\s+([A-Z][\w'\u2019-]{1,30})/i))) pushObs(_userObs, 'Goes by ' + m[1], 14);
@@ -46944,6 +46958,8 @@ Use this template for your response:
     if ((m = t.match(/\bi(?:'m| am)\s+(\d{1,2})\s*(?:years old|yo)\b/i))) pushObs(_userObs, m[1] + ' years old', 14);
     if ((m = t.match(/\bi\s+(?:like|love|enjoy|prefer)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Likes ' + m[1].trim(), 14);
     if ((m = t.match(/\bi\s+(?:hate|dislike|can'?t stand|despise)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Dislikes ' + m[1].trim(), 14);
+    if ((m = t.match(/\bi live in ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and | with )/i))) pushObs(_userObs, 'Lives in ' + m[1].trim(), 14);
+    if ((m = t.match(/\bi work (as|at|in|for) ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Works ' + m[1].toLowerCase() + ' ' + m[2].trim(), 14);
     if ((m = t.match(/\bi\s+have\s+([a-z][\w ,'\u2019-]{2,40}?)\s+(hair|eyes?|skin)\b/i))) pushObs(_userVisual, m[1].trim() + ' ' + m[2].toLowerCase(), 8);
     if ((m = t.match(/\bi(?:'m| am)\s+wearing\s+([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userVisual, 'wearing ' + m[1].trim(), 8);
     if ((m = t.match(/\bi(?:'m| am)\s+(tall|short|petite|slim|slender|muscular|curvy|athletic|lanky|stocky)\b/i))) pushObs(_userVisual, m[1].toLowerCase() + ' build', 8);
@@ -46962,17 +46978,115 @@ Use this template for your response:
     return lines.length > 1 ? lines.join('\n') : '';
   }
   /* main-pane side: merge the learned block into the user's GLOBAL default description and persist it (token-budgeted on the way to Perchance, via the app's countTokens) */
+  // ── note MANAGEMENT: classify each learned line so the note can be updated/superseded, not just
+  //    appended. Singletons (name/age/role/home/work + each visual feature) hold ONE current value;
+  //    preferences (like/dislike of the SAME thing) supersede each other — so "I liked X" then "I hate
+  //    X now" resolves to the latest, instead of both lingering. ──
+  function obsKey(s) {
+    s = String(s || '');
+    if (/^Goes by /i.test(s)) return { k: 'name', single: true };
+    if (/^Is an? /i.test(s)) return { k: 'role', single: true };
+    if (/years old$/i.test(s)) return { k: 'age', single: true };
+    if (/^Lives /i.test(s)) return { k: 'home', single: true };
+    if (/^Works /i.test(s)) return { k: 'work', single: true };
+    if (/^wearing /i.test(s)) return { k: 'vis:wearing', single: true };
+    var vm = /\b(hair|eyes?|skin|complexion|build)\b/i.exec(s); if (vm) return { k: 'vis:' + vm[1].toLowerCase().replace(/s$/, ''), single: true };
+    var m;
+    if ((m = /^Likes (.+)$/i.exec(s))) return { k: 'pref:' + normObs(m[1]), subj: normObs(m[1]) };
+    if ((m = /^Dislikes (.+)$/i.exec(s))) return { k: 'pref:' + normObs(m[1]), subj: normObs(m[1]) };
+    return { k: 'misc:' + normObs(s) };
+  }
+  function mergeObs(existing, incoming, cap) {
+    var out = (existing || []).slice();
+    (incoming || []).forEach(function (raw) {
+      var t = String(raw || '').trim(); if (!t) return;
+      var info = obsKey(t);
+      out = out.filter(function (e) {
+        var ei = obsKey(e);
+        if (info.single && ei.single) return ei.k !== info.k;          // a singleton replaces the prior value of its slot
+        if (info.subj != null && ei.subj === info.subj) return false;   // like/dislike of the same thing supersede (updates a changed opinion)
+        return ei.k !== info.k;                                          // dedup identical content
+      });
+      out.push(t);
+    });
+    if (out.length > cap) { var keep = out.filter(function (e) { return obsKey(e).single; }), rest = out.filter(function (e) { return !obsKey(e).single; }); while (keep.length + rest.length > cap && rest.length) rest.shift(); out = keep.concat(rest); }   // evict the oldest non-singleton first — never lose an identity fact
+    return out;
+  }
+  function parseStoredLines(stored) {
+    var b = String(stored || ''), h = b.indexOf(LEARN_HEAD); if (h < 0) return { obs: [], visual: [] };
+    var seg = b.slice(h), vi = seg.indexOf('# Visual Description:');
+    var obs = ((vi >= 0 ? seg.slice(0, vi) : seg).match(/^- .+$/gm) || []).map(function (l) { return l.replace(/^-\s*/, '').trim(); });
+    var visual = vi >= 0 ? ((seg.slice(vi).split('\n')[1] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)) : [];   // the content line sits AFTER the "# Visual Description:" heading line
+    return { obs: obs, visual: visual };
+  }
+  /* main-pane side: MERGE the new observations into the persisted note (update / supersede / dedup),
+     re-render the block, persist. Merging (vs the old replace-with-snapshot) makes the note durable
+     across iframe reloads and keeps it a living, current profile rather than an ever-growing pile. */
+  // ── the GARDENER: once the note grows, an occasional AI pass "weeds the garden" — combines similar
+  //    facts, prunes duplicates/contradictions, tightens prose, and uses {{user}}/{{char}} placeholders
+  //    so it adapts to renames. Cadence-gated (≥8 items, ≤ every 10 min) + graceful fallback to the
+  //    deterministic merge if the AI is unavailable or returns junk. Output stays a "- " bullet list so
+  //    the merge engine keeps working on it next turn. ──
+  var _gardenBusy = false, _gardenAt = 0;
+  function gardenNote(obs) {
+    try {
+      if (_gardenBusy || !obs || obs.length < 8 || (Date.now() - _gardenAt < 600000)) return Promise.resolve(obs);
+      if (typeof root === 'undefined' || !root || typeof root.aiTextPlugin !== 'function') return Promise.resolve(obs);
+      _gardenBusy = true; _gardenAt = Date.now();
+      var instruction = [
+        'You are tidying rough notes gathered about a person (called {{user}}) during a roleplay/chat. Rewrite them into a clean, durable profile.',
+        'RULES:',
+        '- Combine overlapping or similar facts into one concise bullet.',
+        '- Drop duplicates and any fact a later note contradicts (keep the most recent).',
+        '- Keep only durable, factual things — not fleeting moods.',
+        '- Refer to the person as {{user}} and to the AI character as {{char}}; never hard-code their names.',
+        '- Do NOT restate {{user}}\'s own name (the notes are already about {{user}}).',
+        '- Output ONLY a bullet list, each line starting "- ", at most 8 bullets, no preamble or commentary.',
+        '', 'NOTES:', obs.map(function (o) { return '- ' + o; }).join('\n'), '', 'TIDIED PROFILE:'
+      ].join('\n');
+      return Promise.resolve(root.aiTextPlugin({ instruction: instruction, startWith: '- ', stopSequences: ['\n\n', '\nNOTES'] })).then(function (r) {
+        _gardenBusy = false;
+        if (!r || r.stopReason === 'error') return obs;
+        var out = ('- ' + String(r.generatedText || '')).split('\n')
+          .map(function (l) { return l.replace(/^\s*[-*•]\s*/, '').trim(); })
+          .filter(function (l) { return l && l.length <= 160 && !/^(tidied|notes|profile)\b/i.test(l); })
+          .slice(0, 8);
+        return out.length >= 2 ? out : obs;   // only accept a sane result; otherwise keep the deterministic merge
+      }, function () { _gardenBusy = false; return obs; });
+    } catch (e) { _gardenBusy = false; return Promise.resolve(obs); }
+  }
   function writeUserDesc(obs, visual) {
     try {
       var db = window.db; if (!db || !db.misc) return;
       db.misc.get('userRoleInstruction').then(function (rec) {
-        var base = stripLearned((rec && rec.value) || '');
-        var ctx = idealCtx();
-        // mirror the app's roleInstruction trim (<=0.3*ctx): the user's own text plus our block stay under that ceiling; the block itself capped modestly
-        var blockBudget = Math.max(0, Math.min(Math.floor(ctx * 0.12), 400, Math.floor(ctx * 0.3) - countTok(base)));
-        var block = blockBudget > 8 ? buildLearnedBlock(obs, visual, blockBudget, countTok) : '';
-        var value = (base + (block ? (base ? '\n\n' : '') + block : '')).trim();
-        return db.misc.put({ key: 'userRoleInstruction', value: value });
+        var stored = (rec && rec.value) || '', base = stripLearned(stored), prev = parseStoredLines(stored);
+        var mergedObs = mergeObs(prev.obs, obs || [], 18), mergedVis = mergeObs(prev.visual, visual || [], 8);
+        return gardenNote(mergedObs).then(function (finalObs) {
+          var useObs = (finalObs && finalObs.length) ? finalObs : mergedObs;
+          var ctx = idealCtx();
+          var blockBudget = Math.max(0, Math.min(Math.floor(ctx * 0.12), 400, Math.floor(ctx * 0.3) - countTok(base)));
+          var block = blockBudget > 8 ? buildLearnedBlock(useObs, mergedVis, blockBudget, countTok) : '';
+          var value = (base + (block ? (base ? '\n\n' : '') + block : '')).trim();
+          return db.misc.put({ key: 'userRoleInstruction', value: value });
+        });
+      }).catch(function () {});
+    } catch (e) {}
+  }
+  /* forget: strip the whole learned block (keep the user's own text) */
+  function clearLearned() {
+    try { var db = window.db; if (!db || !db.misc) return; db.misc.get('userRoleInstruction').then(function (rec) { return db.misc.put({ key: 'userRoleInstruction', value: stripLearned((rec && rec.value) || '') }); }).catch(function () {}); } catch (e) {}
+  }
+  /* forget one thing: drop the matching learned lines, re-render the rest */
+  function forgetLearned(q) {
+    q = String(q || '').toLowerCase(); if (!q) return;
+    try {
+      var db = window.db; if (!db || !db.misc) return;
+      db.misc.get('userRoleInstruction').then(function (rec) {
+        var stored = (rec && rec.value) || '', base = stripLearned(stored), prev = parseStoredLines(stored);
+        var obs = prev.obs.filter(function (x) { return x.toLowerCase().indexOf(q) < 0; }), vis = prev.visual.filter(function (x) { return x.toLowerCase().indexOf(q) < 0; });
+        var ctx = idealCtx(), blockBudget = Math.max(0, Math.min(Math.floor(ctx * 0.12), 400, Math.floor(ctx * 0.3) - countTok(base)));
+        var block = blockBudget > 8 ? buildLearnedBlock(obs, vis, blockBudget, countTok) : '';
+        return db.misc.put({ key: 'userRoleInstruction', value: (base + (block ? (base ? '\n\n' : '') + block : '')).trim() });
       }).catch(function () {});
     } catch (e) {}
   }
