@@ -289,8 +289,24 @@ notes to self:
   // Alias it so those features resolve the active thread instead of undefined. Explicit writes still win.
   try { if (!Object.getOwnPropertyDescriptor(window, "currentChatId")) { var __ccid = null; Object.defineProperty(window, "currentChatId", { configurable: true, get: function(){ return __ccid != null ? __ccid : window.activeThreadId; }, set: function(v){ __ccid = v; } }); } } catch(e){}
   window.idealMaxContextTokens = aiTextPluginMetaObject.idealMaxContextTokens;
-  
-  // TODO: swipe animation - slide it all the way off the screen, and slide a "..." dummy onto the screen
+
+  // ── Real-prompt token measurement. measurePromptTokens() runs at each reply send on the
+  //    fully-assembled `instruction`, so __memheroTok.used reflects the TRUE prompt cost — the
+  //    role/description WITH the brain's learned-note block, the reminder, and the inner-read
+  //    steers, not just the visible editor text. There is ONE on-screen display: the context
+  //    meter (initTokenMeter — sidebar chip + floating corner pill), which reads this value via
+  //    window.__renderTokenMeter and recolours green→amber→red as it nears the budget. ──
+  window.__memheroTok = { used: 0, max: window.idealMaxContextTokens || 4096, at: 0, tid: null };
+  window.measurePromptTokens = function(instruction) {   // call at each reply send with the final instruction
+    try {
+      var n = (window.countTokens ? Number(window.countTokens(String(instruction || ""))) : Math.ceil(String(instruction || "").length / 4));
+      var t = window.__memheroTok;
+      if (isFinite(n) && n >= 0) { t.used = Math.round(n); t.at = Date.now(); t.tid = window.activeThreadId; }
+      t.max = window.idealMaxContextTokens || t.max || 4096;
+      if (typeof window.__renderTokenMeter === "function") window.__renderTokenMeter();   // repaint the context meter
+      return n;
+    } catch(e) { return 0; }
+  };
 
   window.$$ = (selector) => document.querySelectorAll(selector);
 
@@ -7660,6 +7676,7 @@ Use this template for your response:
           `>>> TASK: Please respond with 4 smart search query ideas to search a database of memories/facts/lore to help guess what's going to happen next in the messages. You should basically be trying to guess what will happen next, and searching for relevant info about that. Use lots of proper nouns (names of characters, places, etc.) in your query ideas. Imagine you are tasked with writing the next message on behalf of ${replyingCharacterName}. However, there is a large database of memories/lore/facts/etc. which you'll need to use to make sure your reply makes sense, and doesn't contradict established facts/lore/memories. Respond with a list of exactly 4 short sentences that you would like to use to search the database/lorebook/memories for useful information. Try to surface facts that are relevant to ${replyingCharacterName}'s *very next* message - rephrase/reword queries multiple times if needed. Look for specific entities/things/claims/topics/people/places/questions/etc. in the previous message (the one ending with "...${mostRecentMessage.content.slice(-100)}" and the ones before that) that may be important. Write several rephrasings of important queries. Try to search the database for things you don't know, but which might be important for writing a reply that doesn't contradict established world lore/facts/etc.`,
           `Reply with this template:\n\n${startWith} <search query 1>\n2. <search query 2>\n3. <search query 3>\n4. <search query 4>`,
         ].join("\n").trim();
+        window.measurePromptTokens(instruction);   // token HUD: real prompt cost (incl. brain notes/reminder/steers)
         let streamObj = root.aiTextPlugin({
           instruction,
           startWith,
@@ -8028,6 +8045,7 @@ Use this template for your response:
       let stoppedDueToParagraphCount = false;
       let textSoFar = startMessageWith ?? "";
 
+      window.measurePromptTokens(instruction);   // token HUD: real prompt cost (incl. brain notes/reminder/steers)
       let streamObj = root.aiTextPlugin({
         instruction,
         startWith,
@@ -8163,6 +8181,7 @@ Use this template for your response:
       startWith = messageArrayToMessagesText(messages) + `\n\n[[${aiName}]]: `;
     }
 
+    window.measurePromptTokens(instruction);   // token HUD: real prompt cost (incl. brain notes/reminder/steers)
     let streamObj = root.aiTextPlugin({
       instruction,
       startWith,
@@ -10304,7 +10323,7 @@ Use this template for your response:
         } else if(message.trim() === "/help") {
           $.messageInput.value = "";
           try {
-            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 governance, foresight, drives, purpose, dream"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/help","show this list"]];
+            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 needs, sentinel, bond, know, salience, governance, foresight, drives, dream"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/help","show this list"]];
             let __html = "<b>Slash commands</b><div style='font-size:90%;line-height:1.7;margin-top:6px'>" + __cmds.map(c => `<code>${sanitizeHtml(c[0])}</code> \u2014 ${sanitizeHtml(c[1])}`).join("<br>") + "</div>";
             await prompt2({ info:{ type:"none", html: __html } }, { cancelButtonText:null, submitButtonText:"Close" });
           } catch(e){}
@@ -24650,13 +24669,13 @@ Use this template for your response:
     height: 100%;
     width: 0%;
     border-radius: 3px;
-    background: var(--accent, #d8a040);
-    transition: width 0.25s ease;
+    background: #9fe0c0;   /* ok — same green/amber/red chips as the brain-tile token readout */
+    transition: width 0.25s ease, background 0.25s ease;
   }
-  .pf-tok-warn .pf-tok-fill { background: var(--pf-accent, #d8a040); }
-  .pf-tok-danger .pf-tok-fill { background: var(--pf-palette-danger, #e06060); }
-  .pf-tok-warn .pf-tok-text { color: var(--pf-accent, #d8a040); opacity: 1; }
-  .pf-tok-danger .pf-tok-text { color: var(--pf-palette-danger, #e06060); opacity: 1; }
+  .pf-tok-warn .pf-tok-fill { background: #ffd27a; }
+  .pf-tok-danger .pf-tok-fill { background: #ff8a8a; }
+  .pf-tok-warn .pf-tok-text { color: #ffd27a; opacity: 1; }
+  .pf-tok-danger .pf-tok-text { color: #ff8a8a; opacity: 1; }
   /* compression-ratio chip — minimal, colorful, reacts to the usage tier; only shown when memory is actually compressing */
   .pf-tok-ratio { display:inline-block; margin-left:4px; padding:0 5px; border-radius:6px; font-weight:700; font-size:9.5px; letter-spacing:0.02em; color:#0b0b0b; background:linear-gradient(90deg, var(--pf-palette-green,#6ab87c) 0%, var(--pf-accent,#d8b36a) 100%); box-shadow:0 0 6px rgba(106,184,124,0.45); transition:background 0.25s ease, box-shadow 0.25s ease; }
   .pf-tok-warn .pf-tok-ratio { background:linear-gradient(90deg, var(--pf-palette-green,#6ab87c) 0%, var(--pf-accent,#d8a040) 100%); box-shadow:0 0 6px rgba(216,160,64,0.5); }
@@ -34280,11 +34299,12 @@ Use this template for your response:
     if (!Number.isFinite(n) || n < 0) n = 0;
     return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
   }
-  // Tier reflects proximity to the practical prompt budget (where the
-  // app starts trimming/summarizing), not the advisory window size.
-  function tmTier(used, budget) {
-    if (used >= budget) return 'danger';
-    if (used >= budget * 0.8) return 'warn';
+  // Tier reflects proximity to the context window, matching the displayed
+  // "used / max" percentage: amber at 80%, red at 95% (same thresholds and
+  // palette as the brain-tile token chips, so the whole app reads one way).
+  function tmTier(used, max) {
+    if (used >= max * 0.95) return 'danger';
+    if (used >= max * 0.8) return 'warn';
     return 'ok';
   }
   // Sum tokens across message-like records. `tokenize` maps text->number;
@@ -34369,14 +34389,14 @@ Use this template for your response:
     // ---- floating pill (fixed, never covered, never blocks clicks) ----
     const pill = document.createElement('div');
     pill.className = 'pf-tok-pill';
-    pill.title = 'Approximate context usage (messages + retrieved memories/lore) vs. the prompt budget. Older messages get summarized, so this is a rough ceiling.';
+    pill.title = 'Real size of the last prompt sent to the model — your description WITH the brain’s learned notes, the reminder, and its inner-read steers — vs. the context budget. Before your first reply it estimates from the visible conversation.';
     pill.hidden = true;
     document.body.appendChild(pill);
 
     // ---- sidebar chip ----
     const chip = document.createElement('div');
     chip.className = 'pf-tok-chip';
-    chip.title = 'Approximate context usage (messages + retrieved memories/lore) vs. the prompt budget. Older messages get summarized, so this is a rough ceiling.';
+    chip.title = 'Real size of the last prompt sent to the model — your description WITH the brain’s learned notes, the reminder, and its inner-read steers — vs. the context budget. Before your first reply it estimates from the visible conversation.';
     chip.hidden = true;
 
     function mountSidebar() {
@@ -34388,7 +34408,7 @@ Use this template for your response:
       else col.appendChild(chip);
     }
 
-    function paint(el, used, pct, tier, withLabel) {
+    function paint(el, used, pct, tier, withLabel, showRatio) {
       el.classList.remove('pf-tok-ok', 'pf-tok-warn', 'pf-tok-danger');
       el.classList.add('pf-tok-' + tier);
       el.innerHTML = '';
@@ -34400,9 +34420,10 @@ Use this template for your response:
       }
       const txt = document.createElement('span');
       txt.className = 'pf-tok-text';
-      txt.textContent = '~' + tmFormat(used) + ' / ' + tmFormat(maxTokens);
+      // Exact prompt size is exact, so drop the "~" once we're showing the measured value.
+      txt.textContent = (showRatio ? '~' : '') + tmFormat(used) + ' / ' + tmFormat(maxTokens);
       const ratio = used > 0 ? Math.max(1, used / budget) : 1;   // raw context vs the prompt budget = how hard memory is compressing to fit
-      if (ratio >= 1.05) {
+      if (showRatio && ratio >= 1.05) {
         const rc = document.createElement('span');
         rc.className = 'pf-tok-ratio';
         rc.textContent = (ratio >= 9.95 ? Math.round(ratio) : ratio.toFixed(1)) + '×';
@@ -34436,12 +34457,23 @@ Use this template for your response:
     }
 
     function render() {
-      const used = tmEstimate(collectMessageRecords(), tokenize) + overheadTokens();
+      // Primary value is the REAL size of the last prompt actually sent — role/description WITH the
+      // brain's learned-note block, the reminder, and the inner-read steers + transcript — measured at
+      // send time by measurePromptTokens() and published on window.__memheroTok. Before the first reply
+      // (nothing measured yet) fall back to a live estimate of the visible conversation + retrieved
+      // memories/lore, flagged with "~" and the compression ratio, so the meter isn't blank on load.
+      const tok = window.__memheroTok;
+      // Only trust the measured value for the thread it was measured on — after a thread switch
+      // fall back to the live estimate until that thread's next send re-measures.
+      const measured = (tok && tok.at && tok.tid === window.activeThreadId) ? tok.used : null;
+      const isEstimate = (measured == null);
+      const used = isEstimate ? (tmEstimate(collectMessageRecords(), tokenize) + overheadTokens()) : measured;
       const pct = Math.min(100, Math.round((used / maxTokens) * 100));
-      const tier = tmTier(used, budget);
-      if (!pill.hidden) paint(pill, used, pct, tier, false);
-      if (!chip.hidden) paint(chip, used, pct, tier, true);
+      const tier = tmTier(used, maxTokens);
+      if (!pill.hidden) paint(pill, used, pct, tier, false, isEstimate);
+      if (!chip.hidden) paint(chip, used, pct, tier, true, isEstimate);
     }
+    window.__renderTokenMeter = render;   // measurePromptTokens() calls this after each send
 
     function applyMode() {
       const fp = readFloatPos();
@@ -46552,7 +46584,7 @@ Use this template for your response:
   function customCodeIframes() { try { return [].slice.call(document.querySelectorAll('#customCodeIframeCtn iframe, iframe')); } catch (e) { return []; } }
   function postToIframes(msg) { customCodeIframes().forEach(function (f) { try { f.contentWindow && f.contentWindow.postMessage(msg, '*'); } catch (e) {} }); }
   function broadcast() { var s; try { s = load(); } catch (e) { return; } postToIframes({ __memheroBrain: 'settings', settings: s }); }
-  var _read = null, _answer = '', _mood = '', _askResolvers = [];
+  var _read = null, _answer = '', _mood = '', _lobes = null, _askResolvers = [];
   function askBrain(q) { _answer = '\u2026'; renderAnswer(); postToIframes({ __memheroBrain: 'ask', q: String(q || '') }); }
   /* ===================== image-generation feedback: the brain learns from kept/deleted images ===================== */
   var _imgLikes = (function () { try { return JSON.parse(localStorage.getItem('memhero.brain.imagelikes') || '{}') || {}; } catch (e) { return {}; } })();
@@ -46564,7 +46596,7 @@ Use this template for your response:
   function imageDeleted(prompt) { _imgDeleted++; try { signal('down'); } catch (e) {} }                       // the user deleted it -> a negative signal
 
   function askAsync(q) { return new Promise(function (res) { _askResolvers.push(res); setTimeout(function () { var i = _askResolvers.indexOf(res); if (i >= 0) { _askResolvers.splice(i, 1); res('(no answer right now)'); } }, 4000); askBrain(q); }); }
-  function forgetLearned() { postToIframes({ __memheroBrain: 'forget' }); }
+  function forgetLearned() { clearLearned(); postToIframes({ __memheroBrain: 'forget' }); }   // parent strips the persisted note + tells iframes to drop their working obs
   function brainHelpHtml() {
     var fr = '(companion)'; try { var st = load(); if (st.frame) { var p = FRAME_PRESETS.filter(function (x) { return x.frame && x.frame.alignment === st.frame.alignment && x.frame.stature === st.frame.stature; })[0]; fr = p ? '(' + p.id + ')' : '(custom)'; } } catch (e) {}
     var feel = _mood ? ('<div style="margin:6px 0;font-style:italic;opacity:.85">' + escHtml(_mood) + '</div>') : '';
@@ -46576,8 +46608,8 @@ Use this template for your response:
       + '<code>/brain frame &lt;id&gt;</code> \u2014 stance: companion \u00b7 leader \u00b7 dominant \u00b7 villain \u00b7 rival \u00b7 guide<br>'
       + '<code>/brain remember &lt;text&gt;</code> \u2014 store a fact in the lorebook<br>'
       + '<code>/brain open</code> \u2014 open the Memory &amp; Lore manager<br>'
-      + '<code>/brain forget</code> \u2014 clear what it has learned about you this session<br>'
-      + '<code>/brain rook</code> \u2014 the Rook layer: governance, foresight, drives, purpose, dream (try <code>/brain rook parliament</code>, <code>/brain rook foresee delete my notes</code>)'
+      + '<code>/brain forget</code> \u2014 clear what it has learned about you (or <code>/forget &lt;thing&gt;</code> for one fact)<br>'
+      + '<code>/brain rook</code> \u2014 the Rook layer. Try: <code>needs</code> \u00b7 <code>sentinel</code> \u00b7 <code>bond</code> \u00b7 <code>know</code> \u00b7 <code>salience</code> \u00b7 <code>parliament</code> \u00b7 <code>propose &lt;x&gt;</code> \u00b7 <code>assent</code> \u00b7 <code>foresee &lt;x&gt;</code> \u00b7 <code>purpose</code> \u00b7 <code>drives</code> \u00b7 <code>restraint</code> \u00b7 <code>learning</code> \u00b7 <code>dream</code> \u00b7 <code>constitution</code> \u00b7 <code>on</code>/<code>off</code>'
       + '</div>';
   }
   /* Solo's role-frame archetypes: each bundles a stance (who drives / toward you / stature) with the faculties that carry it */
@@ -46594,7 +46626,7 @@ Use this template for your response:
     boundaries: 'holds a steady, kind line under tension', scene: 'holds and advances roleplay', lore: 'contributor \u2014 recalls established continuity', wit: 'times a tease when the room can hold it', restraint: 'a brake against coming on too strong', want: 'its own initiative \u2014 brings a want', warden: 'self-respect \u2014 refuses hostility aimed at it', defiance: 'the RP adversary \u2014 stands in your way (contested scene)', deflect: 'evasion \u2014 the lightest refusal', lead: 'initiative with authority \u2014 takes charge', guile: 'in-fiction cunning (adversary frame only)', expressive: 'reacts with its own feelings', contrition: 'owns it \u2014 apologises, embarrassed, clumsy', almanac: 'contributor \u2014 a book of facts', touch: 'contributor \u2014 tactile sense', sight: 'contributor \u2014 sight', sound: 'contributor \u2014 sound', smell: 'contributor \u2014 smell', taste: 'contributor \u2014 taste', felt: 'contributor \u2014 interoception', calc: 'contributor \u2014 calculator/converter'
   };
   function applyPreset(p) { var st = load(); st.frame = p.frame || null; (p.extras || []).forEach(function (id) { st.enabled[id] = true; if (!st.weight[id]) st.weight[id] = 100; }); save(st); refreshTile(); }
-  function renderReadout() { var box = document.getElementById('memhero-brain-read'); if (!box) return; var r = _read; if (!r) { box.textContent = '(no read yet \u2014 send a message)'; return; } var v = r.vibe || {}; var feel = _mood ? '<div class="mh-read-feel">' + escHtml(_mood) + '</div>' : ''; var h = feel + '<div class="mh-read-tone">reads this as <b>' + (v.tone || 'neutral') + '</b></div><div class="mh-read-council">'; (r.council || []).forEach(function (c) { var on = (c.standing === 'core' || c.standing === 'seated' || c.standing === 'consulted'); h += '<div class="mh-read-row' + (on ? ' on' : '') + '"><b>' + c.id + '</b><span>' + c.standing + (c.spokeLast ? ' \u2605' : '') + '</span></div>'; }); box.innerHTML = h + '</div>'; }
+  function renderReadout() { var box = document.getElementById('memhero-brain-read'); if (!box) return; var r = _read; if (!r) { box.textContent = '(no read yet \u2014 send a message)'; return; } var v = r.vibe || {}; var feel = _mood ? '<div class="mh-read-feel">' + escHtml(_mood) + '</div>' : ''; var h = feel + '<div class="mh-read-tone">reads this as <b>' + (v.tone || 'neutral') + '</b></div><div class="mh-read-council">'; (r.council || []).forEach(function (c) { var on = (c.standing === 'core' || c.standing === 'seated' || c.standing === 'consulted'); h += '<div class="mh-read-row' + (on ? ' on' : '') + '"><b>' + c.id + '</b><span>' + c.standing + (c.spokeLast ? ' \u2605' : '') + '</span></div>'; }); var lo = _lobes, lh = ''; if (lo) { var ch = []; if (lo.need) ch.push('<span class="mh-lobe">pursuing: ' + escHtml(lo.need) + '</span>'); if (lo.bondStage) ch.push('<span class="mh-lobe">bond: ' + escHtml(lo.bondStage) + ' ' + Math.round((lo.bondTrust || 0.5) * 100) + '%' + (lo.bondTrend && lo.bondTrend !== 'steady' ? (' ' + escHtml(lo.bondTrend)) : '') + '</span>'); if (lo.sentinel) ch.push('<span class="mh-lobe warn">\u26a0 ' + escHtml(lo.sentinel) + '</span>'); if (lo.salience) ch.push('<span class="mh-lobe">\u26a1 ' + escHtml(lo.salience) + '</span>'); if (lo.epistemic) ch.push('<span class="mh-lobe">\ud83e\udded ' + escHtml(lo.epistemic) + '</span>'); if (ch.length) lh = '<div class="mh-read-lobes">' + ch.join(' ') + '</div>'; } box.innerHTML = h + '</div>' + lh; }
   function escHtml(x) { return String(x || '').replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; }); }
   function renderAnswer() { var box = document.getElementById('memhero-brain-answer'); if (box) box.textContent = _answer || ''; }
   function refreshTile() { try { var old = document.querySelector('.memhero-brain-tile'); if (old && old.parentNode) old.parentNode.replaceChild(buildTile(), old); } catch (e) {} }
@@ -46603,7 +46635,7 @@ Use this template for your response:
     if (d.__memheroBrain === 'settings' && d.settings) { _settingsCache = d.settings; _army = null; }
     else if (d.__memheroBrain === 'request') { broadcast(); }   // a freshly-built iframe asks the main pane for current settings
     else if (d.__memheroBrain === 'userdesc') { writeUserDesc(d.observations, d.visual); try { (d.observations || []).slice(-2).forEach(rookMoment); } catch (e) {} }   // iframe learned more about the user -> persist it + feed Rook's dream moments
-    else if (d.__memheroBrain === 'read') { _read = d.read; _mood = d.mood || ''; renderReadout(); }   // live read + feeling -> the tile
+    else if (d.__memheroBrain === 'read') { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; renderReadout(); }   // live read + feeling + lobe state -> the tile
     else if (d.__memheroBrain === 'answer') { _answer = d.text; renderAnswer(); var _r = _askResolvers.shift(); if (_r) _r(d.text); }   // resolve any awaiting /brain ask
     else if (d.__memheroBrain === 'ask') { try { var t = army().about(d.q); window.parent && window.parent.postMessage({ __memheroBrain: 'answer', text: t }, '*'); } catch (e) {} }
     else if (d.__memheroBrain === 'mem-open') { try { window.__perchance_fork__ && window.__perchance_fork__.openMemory && window.__perchance_fork__.openMemory(); } catch (e) {} }
@@ -46613,8 +46645,8 @@ Use this template for your response:
     else if (d.__memheroBrain === 'feedback') { try { army().ingestReaction({ kind: d.kind, toward: d.toward || charName() }); } catch (e) {} }   // UI signal -> the live brain
     else if (d.__memheroBrain === 'recall-get') { sendRecall(); }                                  // iframe wants the stored memory/lore
     else if (d.__memheroBrain === 'recall-data') { _recall = { lore: d.lore || [], memories: d.memories || [], summaries: d.summaries || [] }; }   // cache it
-    else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; clearLearned(); }   // clear all learning (iframe drops its obs; the main pane strips the persisted block)
-    else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); forgetLearned(_q); } }   // forget one thing (iframe + persisted note)
+    else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; }   // iframe drops its working obs (the main pane already stripped the persisted note)
+    else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); } }   // iframe drops matching obs (main pane already pruned the persisted note)
   }
 
   /* ---- settings bridge: the custom-code iframe is sandboxed (allow-scripts, no same-origin),
@@ -46655,6 +46687,19 @@ Use this template for your response:
   var ROOK_NEG = /\b(sad|tired|angry|hate|upset|hurt|alone|scared|anxious|stressed|hopeless)\b/i;
   var ROOK_POS = /\b(thanks|love|great|happy|glad|excited|nice|good|haha|lol)\b/i;
   var ROOK_SECRET = /\b(password|secret|api[- ]?key|seed phrase|credit ?card|ssn|social security)\b/i;
+  // a compact snapshot of the live lobe state for the Brain tile (rides on the per-turn 'read' message)
+  function lobesSnapshot() {
+    try {
+      if (load().rook === false) return null;
+      return {
+        need: (RK.agency && RK.agency.need) || '',
+        bondStage: bondStage(), bondTrust: (RK.bond && RK.bond.trust) || 0.5, bondTrend: bondTrend(),
+        sentinel: (RK.sentinel && RK.sentinel.category && Date.now() - RK.sentinel.at < 60000) ? RK.sentinel.category : '',
+        salience: (RK.salience && RK.salience.level && Date.now() - RK.salience.at < 30000) ? RK.salience.reason : '',
+        epistemic: (RK.epistemic && RK.epistemic.stance && Date.now() - RK.epistemic.at < 30000) ? RK.epistemic.stance : ''
+      };
+    } catch (e) { return null; }
+  }
   function rookSteer(userText) {
     var t = String(userText || ''), bits = [];
     try { bondSnapshot(); if (ROOK_POS.test(t)) bondNudge(0.01); else if (ROOK_VENT.test(t)) bondNudge(0.02); } catch (e) {}   // trust eases up on warmth + shared vulnerability
@@ -46915,7 +46960,7 @@ Use this template for your response:
         refreshUser();
         var msgs = oc.thread.messages || [], last = msgs[msgs.length - 1]; if (!last) return;
         feedMessage(last);
-        try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine() }, '*'); } catch (e) {}   // live read + feeling, every turn
+        try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot() }, '*'); } catch (e) {}   // live read + feeling, every turn
         var s = load(), base = stripBrain(oc.character.reminderMessage);
         if (s.useForReplies && last.author === 'user' && last.expectsReply !== false) {
           var dir = await decide(last.content); _lastRead = dir;
@@ -46933,7 +46978,7 @@ Use this template for your response:
     });
     // an edit changes the read — re-perceive the latest user line
     function _latestUser() { var m = oc.thread.messages || [], i; for (i = m.length - 1; i >= 0; i--) if (m[i].author === 'user') return m[i]; return null; }
-    function pushRead() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine() }, '*'); } catch (e) {} }
+    function pushRead() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot() }, '*'); } catch (e) {} }
     function reperceiveLatest() { try { var lu = _latestUser(); if (lu) { var t = resolvePlaceholders(lu.content); army().perceive({ who: userName(), role: 'user', text: t, valence: valence(t) }); } } catch (e) {} pushRead(); }
     try { oc.thread.on('MessageEdited', function () { reperceiveLatest(); }); } catch (e) {}                                   // an edit changes the read
     try { oc.thread.on('MessageDeleted', function () { reperceiveLatest(); refreshRecall(); }); } catch (e) {}                  // a deletion changes the backlog -> refresh read + stored-memory cache
@@ -47076,8 +47121,8 @@ Use this template for your response:
   function clearLearned() {
     try { var db = window.db; if (!db || !db.misc) return; db.misc.get('userRoleInstruction').then(function (rec) { return db.misc.put({ key: 'userRoleInstruction', value: stripLearned((rec && rec.value) || '') }); }).catch(function () {}); } catch (e) {}
   }
-  /* forget one thing: drop the matching learned lines, re-render the rest */
-  function forgetLearned(q) {
+  /* forget one thing: drop the matching learned lines from the persisted note, re-render the rest */
+  function pruneLearnedMatch(q) {
     q = String(q || '').toLowerCase(); if (!q) return;
     try {
       var db = window.db; if (!db || !db.misc) return;
@@ -47319,6 +47364,9 @@ Use this template for your response:
       + '.mh-read-tone{margin-bottom:5px}.mh-read-council{display:flex;flex-direction:column;gap:1px}'
       + '.mh-read-row{display:flex;justify-content:space-between;gap:8px;opacity:.5}.mh-read-row.on{opacity:1}'
       + '.mh-read-row b{font-weight:600}.mh-read-row span{opacity:.75}'
+      + '.mh-read-lobes{margin-top:7px;display:flex;flex-wrap:wrap;gap:4px}'
+      + '.mh-lobe{font-size:10px;padding:1px 7px;border-radius:9px;background:rgba(127,127,127,.18);opacity:.92;white-space:nowrap}'
+      + '.mh-lobe.warn{background:rgba(255,120,120,.22);color:#ffb0b0}'
       + '.memhero-brain-ask{display:flex;gap:5px;margin-top:10px}'
       + '.memhero-brain-askin{flex:1;min-width:0;font:inherit;font-size:11px;padding:3px 6px;border-radius:6px;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit}'
       + '.memhero-brain-askbtn{font-size:11px;padding:3px 9px;border-radius:6px;border:1px solid var(--accent,#c9a227);background:transparent;color:inherit;cursor:pointer}'
@@ -47358,7 +47406,7 @@ Use this template for your response:
     askAsync: askAsync, feeling: function () { return _mood; }, help: brainHelpHtml, forgetLearned: forgetLearned,
     imageKept: imageKept, imageDeleted: imageDeleted, imageStyles: imageStyles,
     stripLearnedBlock: stripLearned,   // editors call this to hide the brain's auto-injected learned block
-    forgetMatching: function (t) { postToIframes({ __memheroBrain: 'forget-match', q: String(t || '') }); }
+    forgetMatching: function (t) { var q = String(t || ''); pruneLearnedMatch(q); postToIframes({ __memheroBrain: 'forget-match', q: q }); }
   };
 })();
 
