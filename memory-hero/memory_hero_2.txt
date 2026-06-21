@@ -10323,7 +10323,7 @@ Use this template for your response:
         } else if(message.trim() === "/help") {
           $.messageInput.value = "";
           try {
-            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 needs, sentinel, bond, know, salience, governance, foresight, drives, dream"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/help","show this list"]];
+            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 needs, sentinel, bond, know, salience, governance, foresight, drives, dream"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/profile","recompute + manage your user profile (/profile off to stop)"],["/profile import","paste a big sectioned profile (user or character) for the brain to surface contextually"],["/profile edit","view / edit the imported user + character profile sections"],["/help","show this list"]];
             let __html = "<b>Slash commands</b><div style='font-size:90%;line-height:1.7;margin-top:6px'>" + __cmds.map(c => `<code>${sanitizeHtml(c[0])}</code> \u2014 ${sanitizeHtml(c[1])}`).join("<br>") + "</div>";
             await prompt2({ info:{ type:"none", html: __html } }, { cancelButtonText:null, submitButtonText:"Close" });
           } catch(e){}
@@ -10340,6 +10340,34 @@ Use this template for your response:
             } else {
               if(__MHB.forgetMatching) __MHB.forgetMatching(__arg);
               await prompt2({ info:{ type:"none", html:`Forgot anything learned matching: <i>${sanitizeHtml(__arg)}</i>` } }, { cancelButtonText:null, submitButtonText:"OK" });
+            }
+          } catch(e){}
+          return;
+        } else if(message.trim() === "/profile" || message.trim().startsWith("/profile ")) {
+          $.messageInput.value = "";
+          try {
+            let __MHB = window.MemHeroBrain;
+            if(!__MHB || !__MHB.manageProfile) { await prompt2({ info:{ type:"none", html:"The brain isn’t active for this chat." } }, { cancelButtonText:null, submitButtonText:"Close" }); return; }
+            let __arg = message.trim().slice("/profile".length).trim().toLowerCase();
+            if(__arg === "off" || __arg === "stop") {
+              __MHB.manageProfile(false);
+              await prompt2({ info:{ type:"none", html:"Stopped actively managing your profile. The brain still learns about you passively." } }, { cancelButtonText:null, submitButtonText:"OK" });
+            } else if(__arg === "status") {
+              let __on = __MHB.isManaging && __MHB.isManaging();
+              await prompt2({ info:{ type:"none", html: __on ? "The brain is <b>actively managing</b> your profile — recomputing and (re)writing your user-data fields every turn." : "The brain is <b>not</b> actively managing your profile (passive learning only). Type <code>/profile</code> to turn it on." } }, { cancelButtonText:null, submitButtonText:"Close" });
+            } else if(__arg === "edit" || __arg === "view" || __arg === "sections" || __arg === "show") {
+              if(__MHB.editProfiles) __MHB.editProfiles();
+              else await prompt2({ info:{ type:"none", html:"The rich-profile editor isn’t available." } }, { cancelButtonText:null, submitButtonText:"Close" });
+            } else if(__arg === "import") {
+              if(!__MHB.importProfile) { await prompt2({ info:{ type:"none", html:"Rich-profile import isn’t available." } }, { cancelButtonText:null, submitButtonText:"Close" }); return; }
+              let __res = await prompt2({ blob:{ type:"text", label:"Paste a profile. It’s split into sections on headers like “— TITLE —”, “# Title”, or ALL-CAPS lines. The brain stores the sections and weaves in only the relevant one(s) each turn.", defaultValue:"", placeholder:"Paste the full profile here…", height:"42vh" }, target:{ type:"select", label:"Apply to", defaultValue:"user", options:[{value:"user",content:"User profile (about the human / you)"},{value:"character",content:"Character profile (the bot persona)"}] } });
+              if(!__res || !__res.blob || !__res.blob.trim()) return;
+              await __MHB.importProfile(__res.target, __res.blob);
+              let __secs = __MHB.profileSections ? __MHB.profileSections(__res.target) : [];
+              await prompt2({ info:{ type:"none", html:`Imported <b>${__secs.length}</b> section${__secs.length===1?"":"s"} into the <b>${__res.target==="character"?"character":"user"}</b> profile.<div style='opacity:.7;margin-top:6px;font-size:90%'>${__secs.map(s=>sanitizeHtml(s.heading)).join(" · ")}</div><div style='opacity:.7;margin-top:8px;font-size:90%'>The brain will weave in the relevant section(s) each turn — watch <b>💭 Thoughts</b> for “drawing on background”.</div>` } }, { cancelButtonText:null, submitButtonText:"Done" });
+            } else {
+              __MHB.manageProfile();
+              await prompt2({ info:{ type:"none", html:"On it — recomputing your profile from the whole conversation right now, (re)writing your user-data fields through the broker, and <b>actively managing</b> them from here on.<div style='opacity:.7;margin-top:6px;font-size:90%'>Your own description text is preserved — the brain manages its learned section, and adopts a learned name only into an empty name field. <code>/profile off</code> to stop · <code>/forget me</code> to wipe.</div>" } }, { cancelButtonText:null, submitButtonText:"OK" });
             }
           } catch(e){}
           return;
@@ -46558,7 +46586,7 @@ Use this template for your response:
   /* ---- settings (defaults: every faculty ON except the four) ---- */
   function extraIds() { var N = window.ChloeNation; return (N && N.EXTRAS || []).map(function (e) { return e.id; }); }
   function defaults() {
-    var s = { enabled: {}, weight: {}, useForReplies: true, learnUserDesc: true, writeLore: true, rook: true, frame: null, noise: 0 };
+    var s = { enabled: {}, weight: {}, useForReplies: true, learnUserDesc: true, writeLore: true, rook: true, frame: null, noise: 0, manageProfile: false };
     extraIds().forEach(function (id) { var on = OFF_BY_DEFAULT.indexOf(id) < 0; s.enabled[id] = on; s.weight[id] = on ? 100 : 0; });
     return s;
   }
@@ -46574,6 +46602,7 @@ Use this template for your response:
     if (j.learnUserDesc === false) d.learnUserDesc = false;
     if (j.writeLore === false) d.writeLore = false;
     if (j.rook === false) d.rook = false;
+    if (j.manageProfile === true) d.manageProfile = true;   // opt-in: the brain actively (re)writes + manages the user-data fields
     if (j.frame && typeof j.frame === 'object') d.frame = j.frame; if (j.frame === null) d.frame = null;
     if (typeof j.noise === 'number') d.noise = Math.max(0, Math.min(50, j.noise));
     return d;
@@ -46584,7 +46613,7 @@ Use this template for your response:
   function customCodeIframes() { try { return [].slice.call(document.querySelectorAll('#customCodeIframeCtn iframe, iframe')); } catch (e) { return []; } }
   function postToIframes(msg) { customCodeIframes().forEach(function (f) { try { f.contentWindow && f.contentWindow.postMessage(msg, '*'); } catch (e) {} }); }
   function broadcast() { var s; try { s = load(); } catch (e) { return; } postToIframes({ __memheroBrain: 'settings', settings: s }); }
-  var _read = null, _answer = '', _mood = '', _lobes = null, _askResolvers = [];
+  var _read = null, _answer = '', _mood = '', _lobes = null, _gov = null, _mem = null, _askResolvers = [];
   function askBrain(q) { _answer = '\u2026'; renderAnswer(); postToIframes({ __memheroBrain: 'ask', q: String(q || '') }); }
   /* ===================== image-generation feedback: the brain learns from kept/deleted images ===================== */
   var _imgLikes = (function () { try { return JSON.parse(localStorage.getItem('memhero.brain.imagelikes') || '{}') || {}; } catch (e) { return {}; } })();
@@ -46626,25 +46655,199 @@ Use this template for your response:
     boundaries: 'holds a steady, kind line under tension', scene: 'holds and advances roleplay', lore: 'contributor \u2014 recalls established continuity', wit: 'times a tease when the room can hold it', restraint: 'a brake against coming on too strong', want: 'its own initiative \u2014 brings a want', warden: 'self-respect \u2014 refuses hostility aimed at it', defiance: 'the RP adversary \u2014 stands in your way (contested scene)', deflect: 'evasion \u2014 the lightest refusal', lead: 'initiative with authority \u2014 takes charge', guile: 'in-fiction cunning (adversary frame only)', expressive: 'reacts with its own feelings', contrition: 'owns it \u2014 apologises, embarrassed, clumsy', almanac: 'contributor \u2014 a book of facts', touch: 'contributor \u2014 tactile sense', sight: 'contributor \u2014 sight', sound: 'contributor \u2014 sound', smell: 'contributor \u2014 smell', taste: 'contributor \u2014 taste', felt: 'contributor \u2014 interoception', calc: 'contributor \u2014 calculator/converter'
   };
   function applyPreset(p) { var st = load(); st.frame = p.frame || null; (p.extras || []).forEach(function (id) { st.enabled[id] = true; if (!st.weight[id]) st.weight[id] = 100; }); save(st); refreshTile(); }
-  function renderReadout() { var box = document.getElementById('memhero-brain-read'); if (!box) return; var r = _read; if (!r) { box.textContent = '(no read yet \u2014 send a message)'; return; } var v = r.vibe || {}; var feel = _mood ? '<div class="mh-read-feel">' + escHtml(_mood) + '</div>' : ''; var h = feel + '<div class="mh-read-tone">reads this as <b>' + (v.tone || 'neutral') + '</b></div><div class="mh-read-council">'; (r.council || []).forEach(function (c) { var on = (c.standing === 'core' || c.standing === 'seated' || c.standing === 'consulted'); h += '<div class="mh-read-row' + (on ? ' on' : '') + '"><b>' + c.id + '</b><span>' + c.standing + (c.spokeLast ? ' \u2605' : '') + '</span></div>'; }); var lo = _lobes, lh = ''; if (lo) { var ch = []; if (lo.need) ch.push('<span class="mh-lobe">pursuing: ' + escHtml(lo.need) + '</span>'); if (lo.bondStage) ch.push('<span class="mh-lobe">bond: ' + escHtml(lo.bondStage) + ' ' + Math.round((lo.bondTrust || 0.5) * 100) + '%' + (lo.bondTrend && lo.bondTrend !== 'steady' ? (' ' + escHtml(lo.bondTrend)) : '') + '</span>'); if (lo.sentinel) ch.push('<span class="mh-lobe warn">\u26a0 ' + escHtml(lo.sentinel) + '</span>'); if (lo.salience) ch.push('<span class="mh-lobe">\u26a1 ' + escHtml(lo.salience) + '</span>'); if (lo.epistemic) ch.push('<span class="mh-lobe">\ud83e\udded ' + escHtml(lo.epistemic) + '</span>'); if (ch.length) lh = '<div class="mh-read-lobes">' + ch.join(' ') + '</div>'; } box.innerHTML = h + '</div>' + lh; }
+  function renderReadout() { var box = document.getElementById('memhero-brain-read'); if (!box) return; var r = _read; if (!r) { box.textContent = '(no read yet \u2014 send a message)'; return; } var v = r.vibe || {}; var feel = _mood ? '<div class="mh-read-feel">' + escHtml(_mood) + '</div>' : ''; var h = feel + '<div class="mh-read-tone">reads this as <b>' + (v.tone || 'neutral') + '</b></div><div class="mh-read-council">'; (r.council || []).forEach(function (c) { var on = (c.standing === 'core' || c.standing === 'seated' || c.standing === 'consulted'); h += '<div class="mh-read-row' + (on ? ' on' : '') + '"><b>' + c.id + '</b><span>' + c.standing + (c.spokeLast ? ' \u2605' : '') + '</span></div>'; }); var lo = _lobes, lh = ''; if (lo) { var ch = []; if (lo.need) ch.push('<span class="mh-lobe">pursuing: ' + escHtml(lo.need) + '</span>'); if (lo.bondStage) ch.push('<span class="mh-lobe">bond: ' + escHtml(lo.bondStage) + ' ' + Math.round((lo.bondTrust || 0.5) * 100) + '%' + (lo.bondTrend && lo.bondTrend !== 'steady' ? (' ' + escHtml(lo.bondTrend)) : '') + '</span>'); if (lo.sentinel) ch.push('<span class="mh-lobe warn">\u26a0 ' + escHtml(lo.sentinel) + '</span>'); if (lo.salience) ch.push('<span class="mh-lobe">\u26a1 ' + escHtml(lo.salience) + '</span>'); if (lo.epistemic) ch.push('<span class="mh-lobe">\ud83e\udded ' + escHtml(lo.epistemic) + '</span>'); if (lo.change) ch.push('<span class="mh-lobe">\u270e ' + escHtml(lo.change) + '</span>'); if (lo.profile) ch.push('<span class="mh-lobe">\ud83d\udc64 ' + escHtml(lo.profile) + '</span>'); if (lo.loop) ch.push('<span class="mh-lobe">\u21a9 ' + escHtml(lo.loop) + '</span>'); if (ch.length) lh = '<div class="mh-read-lobes">' + ch.join(' ') + '</div>'; } box.innerHTML = h + '</div>' + lh; }
   function escHtml(x) { return String(x || '').replace(/[<>&]/g, function (m) { return { '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m]; }); }
   function renderAnswer() { var box = document.getElementById('memhero-brain-answer'); if (box) box.textContent = _answer || ''; }
+  // ── Thoughts drawer (ported from Chloe-solo's mind drawer): a live, categorized feed of the brain
+  //    working. Thoughts arrive on the `read` post; we keep a parent-side ring buffer so opening the
+  //    drawer replays recent history, and append live with sticky auto-scroll. textContent only (XSS-safe). ──
+  var _thoughtLog = [];
+  var THINK_CAT = { mem: '#9fe0c0', cog: '#bca7f0', flow: '#7fc7ff', guard: '#ff9a9a', drive: '#ffce7a', mood: '#f0a7d8', diff: '#c9a227', recall: '#7fd9c8', council: '#c2a0f5', steer: '#f0c382', lore: '#a8d59a', plan: '#86c8e0', rest: '#9aa0b0', io: '#9aa0b0' };
+  // ── LCARS "cognitive systems" console: each thought category maps to a system indicator that lights up
+  //    when that process fires — a live, blinking-lights status panel (60s-sci-fi / Star Trek LCARS feel). ──
+  var TH_SYS = { cog: 'perceive', steer: 'steer', council: 'council', mem: 'memory', recall: 'memory', lore: 'memory', diff: 'memory', flow: 'orient', guard: 'sentinel', mood: 'affect', drive: 'agency', plan: 'agency' };
+  var TH_SYS_DEF = [   // [key, label, LCARS colour, tooltip]
+    ['perceive', 'PERCEIVE', '#ff9966', 'Reads your message — tone, intent, working memory'],
+    ['council', 'COUNCIL', '#cc99ff', 'Many inner voices deliberate — a council, not one model'],
+    ['steer', 'STEER', '#ffcc66', 'Decides HOW to respond, then steers the reply'],
+    ['memory', 'MEMORY', '#66ccff', 'Recalls stored memory, lore, your profile & the bond'],
+    ['orient', 'ORIENT', '#99ccff', 'Notices shifts — topic, mood, the time of day'],
+    ['sentinel', 'SENTINEL', '#ff5e5e', 'Watches for manipulation, injection, hostility'],
+    ['affect', 'AFFECT', '#ff99cc', 'Tracks and regulates its own feeling'],
+    ['agency', 'AGENCY', '#ff9900', 'Pursues its needs & goals (a bot’s drives)']
+  ];
+  function buildSystemsDash() {
+    var wrap = document.createElement('div'); wrap.className = 'mh-lcars'; wrap.title = 'Cognitive systems — each light fires as that process runs this turn (perceive, council, steer, memory, orient, sentinel, affect, agency).';
+    var head = document.createElement('div'); head.className = 'mh-lcars-head';
+    head.innerHTML = '<span class="mh-lcars-elbow"></span><span class="mh-lcars-title">Cognitive Systems</span><span class="mh-lcars-num">M·H</span><span class="mh-lcars-stat"></span>';
+    var grid = document.createElement('div'); grid.className = 'mh-lcars-grid';
+    TH_SYS_DEF.forEach(function (d) {
+      var cell = document.createElement('div'); cell.className = 'mh-sys'; cell.setAttribute('data-sys', d[0]); cell.style.setProperty('--c', d[2]); cell.title = d[3];
+      cell.innerHTML = '<span class="mh-sys-bar"></span><span class="mh-sys-dot"></span><span class="mh-sys-lab"></span>';
+      cell.querySelector('.mh-sys-lab').textContent = d[1];
+      grid.appendChild(cell);
+    });
+    wrap.appendChild(head); wrap.appendChild(grid);
+    return wrap;
+  }
+  function pulseSystem(tag) {
+    try { var sys = TH_SYS[tag]; if (!sys) return; var el = document.querySelector('.mh-sys[data-sys="' + sys + '"]'); if (!el) return; el.classList.remove('lit'); void el.offsetWidth; el.classList.add('lit'); clearTimeout(el.__t); el.__t = setTimeout(function () { el.classList.remove('lit'); }, 1700); } catch (e) {}
+  }
+  function startSysAmbient() { if (window.__mhSysAmb) return; window.__mhSysAmb = setInterval(function () { try { var cells = document.querySelectorAll('.mh-sys'); if (!cells.length) return; var el = cells[Math.floor(Math.random() * cells.length)]; if (el.classList.contains('lit')) return; el.classList.add('flick'); setTimeout(function () { el.classList.remove('flick'); }, 200); } catch (e) {} }, 850); }
+  // ── LAYER 2 — THE COUNCIL: the deliberating faculties (Nation), lit by their live standing from _read.council ──
+  function buildCouncilDash() {
+    var wrap = document.createElement('div'); wrap.className = 'mh-lcars'; wrap.title = 'The Council — the faculties that deliberate each turn (a council, not one model). Lit = seated · dim = consulted · ★ = spoke last.';
+    var head = document.createElement('div'); head.className = 'mh-lcars-head';
+    head.innerHTML = '<span class="mh-lcars-elbow" style="background:#cc99ff"></span><span class="mh-lcars-title" style="color:#cc99ff">The Council</span><span class="mh-lcars-num">VOX</span><span class="mh-lcars-stat" style="background:#cc99ff;box-shadow:0 0 6px #cc99ff"></span>';
+    var grid = document.createElement('div'); grid.className = 'mh-lcars-grid'; grid.id = 'mh-council-grid';
+    grid.innerHTML = '<div class="mh-lcars-wait">awaiting deliberation…</div>';
+    wrap.appendChild(head); wrap.appendChild(grid); return wrap;
+  }
+  function renderCouncilDash() {
+    var grid = document.getElementById('mh-council-grid'); if (!grid) return;
+    var active = ((_read && _read.council) || []).filter(function (c) { return c.standing === 'core' || c.standing === 'seated' || c.standing === 'consulted'; }).slice(0, 12);
+    if (!active.length) return;
+    grid.innerHTML = '';
+    active.forEach(function (c) {
+      var strong = (c.standing === 'core' || c.standing === 'seated'), col = (c.standing === 'core') ? '#ffcc66' : '#9fd0ff';
+      var cell = document.createElement('div'); cell.className = 'mh-sys' + (strong ? ' on' : ''); cell.style.setProperty('--c', col); if (!strong) cell.style.opacity = '.6';
+      cell.title = c.id + (FAC_DESC[c.id] ? ' — ' + FAC_DESC[c.id] : '') + ' · ' + c.standing + (c.spokeLast ? ' · spoke last' : '');
+      cell.innerHTML = '<span class="mh-sys-bar"></span><span class="mh-sys-dot"></span><span class="mh-sys-lab"></span>';
+      cell.querySelector('.mh-sys-lab').textContent = (c.spokeLast ? '★' : '') + c.id;
+      grid.appendChild(cell);
+    });
+  }
+  // ── LAYER 3 — BRAIN LOBES: the specialized subsystems + their current state, from _lobes / _mood ──
+  // each: [key, label, colour, alt-text explainer]
+  var LOBE_DEF = [['agency', 'AGENCY', '#ff9900', 'Needs & goals — the drive it’s pursuing right now'], ['bond', 'BOND', '#ff99cc', 'The relationship arc — trust level, stage, and trend'], ['sentinel', 'SENTINEL', '#ff5e5e', 'Threat sense — manipulation, prompt-injection, hostility'], ['salience', 'SALIENCE', '#99ccff', 'Orienting reflex — a sudden topic or mood shift'], ['metacog', 'METACOG', '#c2a0f5', 'Knowledge boundary — whether it actually knows this'], ['mood', 'MOOD', '#66ddc8', 'Its own current felt state']];
+  // reusable LCARS sub-panel builder: header (elbow + title + code + status light) over a grid/rows of cells
+  function buildDash(title, code, colour, opts) {
+    var wrap = document.createElement('div'); wrap.className = 'mh-lcars'; wrap.title = (opts && opts.alt) || '';
+    var head = document.createElement('div'); head.className = 'mh-lcars-head';
+    head.innerHTML = '<span class="mh-lcars-elbow" style="background:' + colour + '"></span><span class="mh-lcars-title" style="color:' + colour + '">' + title + '</span><span class="mh-lcars-num">' + code + '</span><span class="mh-lcars-stat" style="background:' + colour + ';box-shadow:0 0 6px ' + colour + '"></span>';
+    var body = document.createElement('div'); body.className = (opts && opts.rows) ? 'mh-lcars-rows' : 'mh-lcars-grid'; if (opts && opts.id) body.id = opts.id;
+    if (opts && opts.wait) body.innerHTML = '<div class="mh-lcars-wait">' + opts.wait + '</div>';
+    wrap.appendChild(head); wrap.appendChild(body); return wrap;
+  }
+  // a value-row cell used by the lobes/governance/memory panels: [bar][dot][LABEL][value], with alt-text
+  function valRow(key, label, colour, alt) {
+    var r = document.createElement('div'); r.className = 'mh-sys mh-lobe-row'; r.setAttribute('data-row', key); r.style.setProperty('--c', colour); r.style.opacity = '.36'; if (alt) r.title = alt;
+    r.innerHTML = '<span class="mh-sys-bar"></span><span class="mh-sys-dot"></span><span class="mh-sys-lab">' + label + '</span><span class="mh-lobe-val"></span>';
+    return r;
+  }
+  function setRow(scope, key, on, val) { var r = (scope || document).querySelector('.mh-lobe-row[data-row="' + key + '"]'); if (!r) return; if (on) r.classList.add('on'); else r.classList.remove('on'); r.style.opacity = on ? '1' : '.36'; var v = r.querySelector('.mh-lobe-val'); if (v) v.textContent = on ? (val == null ? '' : String(val)) : ''; }
+  function buildLobesDash() {
+    var wrap = buildDash('Brain Lobes', 'LBE', '#66ccff', { rows: true, id: 'mh-lobes-rows', alt: 'Specialized subsystems and their current inner state — agency, bond, sentinel, salience, metacognition, mood.' });
+    var rows = wrap.querySelector('#mh-lobes-rows');
+    LOBE_DEF.forEach(function (d) { rows.appendChild(valRow(d[0], d[1], d[2], d[3])); });
+    return wrap;
+  }
+  function renderLobesDash() {
+    var lo = _lobes || {}, box = document.getElementById('mh-lobes-rows'); if (!box) return;
+    setRow(box, 'agency', !!lo.need, lo.need);
+    setRow(box, 'bond', !!lo.bondStage, lo.bondStage ? (lo.bondStage + ' ' + Math.round((lo.bondTrust || 0.5) * 100) + '%') : '');
+    setRow(box, 'sentinel', !!lo.sentinel, lo.sentinel);
+    setRow(box, 'salience', !!lo.salience, lo.salience);
+    setRow(box, 'metacog', !!lo.epistemic, lo.epistemic);
+    setRow(box, 'mood', !!_mood, String(_mood || '').replace(/\s+/g, ' ').slice(0, 22));
+  }
+  // ── LAYER 4 — GOVERNANCE (Rook): values, restraint, foresight, drives, parliament ──
+  var GOV_DEF = [['rook', 'GOVERNANCE', '#ff9900', 'The Rook layer — is governance active'], ['drive', 'DRIVE', '#ffcc66', 'Its strongest current drive (curiosity · care · mastery)'], ['values', 'VALUES', '#ff5e5e', 'The constitution — lights when a line was just tested'], ['restraint', 'RESTRAINT', '#9fd0ff', 'Holding back — recovering after a knock, not over-stepping'], ['foresight', 'FORESIGHT', '#c2a0f5', 'Weighing consequences — bills under review before acting'], ['purpose', 'PURPOSE', '#66ddc8', 'Its standing purpose (telos) is set']];
+  function buildGovDash() {
+    var wrap = buildDash('Governance', 'GOV', '#ff9966', { rows: true, id: 'mh-gov-rows', alt: 'The Rook governance layer — it checks replies against its values, holds restraint, foresees consequences, and pursues drives.' });
+    var rows = wrap.querySelector('#mh-gov-rows'); GOV_DEF.forEach(function (d) { rows.appendChild(valRow(d[0], d[1], d[2], d[3])); }); return wrap;
+  }
+  function renderGovDash() {
+    var g = _gov || {}, box = document.getElementById('mh-gov-rows'); if (!box) return;
+    setRow(box, 'rook', !!g.on, g.on ? 'active' : 'off');
+    setRow(box, 'drive', !!(g.on && g.drive), g.drive);
+    setRow(box, 'values', !!(g.on && g.integrity), g.integrity ? 'a line was tested' : '');
+    setRow(box, 'restraint', !!(g.on && g.restraint), g.restraint ? 'holding back' : '');
+    setRow(box, 'foresight', !!(g.on && (g.pending || g.bills)), g.pending ? (g.pending + ' pending') : (g.bills ? (g.bills + ' reviewed') : ''));
+    setRow(box, 'purpose', !!(g.on && g.telos), g.telos ? 'set' : '');
+  }
+  // ── LAYER 5 — MEMORY: what the brain knows (facts, profile sections, lore, memories, bond moments) ──
+  var MEM_DEF = [['facts', 'FACTS', '#9fe0c0', 'Learned facts about you (name, likes, work…)'], ['profile', 'PROFILE', '#66ccff', 'Rich-profile sections — yours and the character’s'], ['lore', 'LORE', '#a8d59a', 'Lorebook entries the brain can recall'], ['memories', 'MEMORIES', '#7fd9c8', 'Stored conversation memories'], ['moments', 'MOMENTS', '#ff99cc', 'Shared moments that feed the bond & dreams']];
+  function buildMemDash() {
+    var wrap = buildDash('Memory', 'MEM', '#66ddc8', { rows: true, id: 'mh-mem-rows', alt: 'What the brain knows — learned facts, rich-profile sections, lorebook entries, stored memories, and shared moments.' });
+    var rows = wrap.querySelector('#mh-mem-rows'); MEM_DEF.forEach(function (d) { rows.appendChild(valRow(d[0], d[1], d[2], d[3])); }); return wrap;
+  }
+  function renderMemDash() {
+    var m = _mem || {}, box = document.getElementById('mh-mem-rows'); if (!box) return;
+    setRow(box, 'facts', (m.facts || 0) > 0, (m.facts || 0) + (m.visual ? (' +' + m.visual + ' visual') : ''));
+    setRow(box, 'profile', ((m.profileU || 0) + (m.profileC || 0)) > 0, (m.profileU || 0) + ' user · ' + (m.profileC || 0) + ' char');
+    setRow(box, 'lore', (m.lore || 0) > 0, (m.lore || 0) + ' entries');
+    setRow(box, 'memories', ((m.memories || 0) + (m.summaries || 0)) > 0, (m.memories || 0) + (m.summaries ? (' · ' + m.summaries + ' sum') : ''));
+    setRow(box, 'moments', (m.moments || 0) > 0, (m.moments || 0));
+  }
+  // categories the user can show/hide via the ⚙ menu (persisted; default all on)
+  var TH_CATS = [['cog', 'Thinking'], ['steer', 'Reply steer'], ['council', 'Council / deliberation'], ['mem', 'Memory & profile'], ['recall', 'Recall (memory & lore)'], ['lore', 'Lore writes'], ['flow', 'Shifts & timing'], ['guard', 'Alerts'], ['mood', 'Mood'], ['drive', 'Drives'], ['plan', 'Plans & goals'], ['diff', 'Field edits (diffs)']];
+  var _thCats = (function () { try { return JSON.parse(localStorage.getItem('memhero.thoughts.cats') || '{}') || {}; } catch (e) { return {}; } })();
+  function thoughtCatOn(tag) { return _thCats[tag] !== false; }                                       // default on
+  function setThoughtCat(tag, on) { _thCats[tag] = !!on; try { localStorage.setItem('memhero.thoughts.cats', JSON.stringify(_thCats)); } catch (e) {} rebuildStream(); }
+  function rebuildStream() { var box = document.getElementById('memhero-brain-stream'); if (!box) return; box.innerHTML = ''; _thoughtLog.forEach(function (th) { if (thoughtCatOn(th.tag)) appendThoughtRow(box, th); }); box.scrollTop = box.scrollHeight; }
+  // ── processing indicator: a JS-driven "…" that animates ONLY while the brain/app is working, so a real
+  //    main-thread hang freezes it (a CSS animation would keep running). thoughtsBusy() is pinged by the
+  //    reply-send hook + every incoming thought; the watchdog clears it after a few seconds of silence. ──
+  var _thBusyUntil = 0, _thDots = 0, _thBusyTimer = 0;
+  function thoughtsBusy() { _thBusyUntil = Date.now() + 5000; }
+  function startBusyTicker() { if (_thBusyTimer) return; _thBusyTimer = setInterval(function () { var ind = document.getElementById('memhero-th-busy'); if (!ind) return; if (Date.now() < _thBusyUntil) { _thDots = (_thDots % 3) + 1; ind.textContent = new Array(_thDots + 1).join('·'); ind.style.visibility = 'visible'; } else { ind.style.visibility = 'hidden'; _thDots = 0; } }, 380); }
+  function appendThoughtRow(box, th) {
+    var near = (box.scrollHeight - box.scrollTop - box.clientHeight) < 60;   // measure BEFORE adding
+    var row = document.createElement('div'); row.className = 'mh-thought'; row.setAttribute('data-tag', th.tag || 'flow');
+    if (th.tag === 'diff') {                                                 // a Broker write -> a GitHub-style from/to
+      row.className = 'mh-thought mh-diff';
+      var fl = document.createElement('div'); fl.className = 'mh-diff-field'; fl.textContent = '✎ ' + (th.field || 'field'); row.appendChild(fl);
+      (th.removed || []).forEach(function (l) { var d = document.createElement('div'); d.className = 'mh-diff-del'; d.textContent = '− ' + l; row.appendChild(d); });
+      (th.added || []).forEach(function (l) { var d = document.createElement('div'); d.className = 'mh-diff-add'; d.textContent = '+ ' + l; row.appendChild(d); });
+    } else {
+      var tg = document.createElement('span'); tg.className = 'mh-th-tag'; tg.textContent = th.tag || '·'; tg.style.color = THINK_CAT[th.tag] || '#9aa0b0';
+      var tx = document.createElement('span'); tx.className = 'mh-th-txt'; tx.textContent = th.text || '';
+      row.appendChild(tg); row.appendChild(tx);
+    }
+    box.appendChild(row);
+    while (box.children.length > 200) box.removeChild(box.firstChild);
+    if (near) box.scrollTop = box.scrollHeight;
+  }
+  function renderThought(th) {
+    if (!th || (th.tag !== 'diff' && !th.text) || (th.tag === 'diff' && !th.field)) return;
+    _thoughtLog.push(th); if (_thoughtLog.length > 200) _thoughtLog.shift();
+    try { thoughtsBusy(); } catch (e) {}                                     // an arriving thought = the brain is active
+    try { pulseSystem(th.tag); } catch (e) {}                                // light the matching LCARS system (even if the text is filtered)
+    if (!thoughtCatOn(th.tag)) return;                                       // logged to history, but hidden by the ⚙ filter
+    var box = document.getElementById('memhero-brain-stream'); if (box) appendThoughtRow(box, th);
+  }
+  // ── field diffs: when the Brain writes a text surface through the Broker, show what changed from/to ──
+  var DIFF_FIELDS = { 'character.name': 1, 'character.description': 1, 'character.reminder': 1, 'character.greeting': 1, 'user.name': 1, 'user.description': 1, 'user.globalName': 1, 'user.globalDescription': 1 };
+  function simpleDiff(a, b) {
+    a = String(a == null ? '' : a); b = String(b == null ? '' : b);
+    if (a.length <= 90 && b.length <= 90 && a.indexOf('\n') < 0 && b.indexOf('\n') < 0) { return { removed: a ? [a] : [], added: b ? [b] : [] }; }   // short single-line -> inline old/new
+    var al = a.split('\n'), bl = b.split('\n'), bs = {}, as = {};
+    bl.forEach(function (l) { bs[l] = 1; }); al.forEach(function (l) { as[l] = 1; });
+    return { removed: al.filter(function (l) { return l.trim() && !bs[l]; }).slice(0, 8), added: bl.filter(function (l) { return l.trim() && !as[l]; }).slice(0, 8) };
+  }
+  function emitFieldDiff(label, oldStr, newStr) { var d = simpleDiff(oldStr, newStr); if (!d.removed.length && !d.added.length) return; renderThought({ tag: 'diff', field: label, removed: d.removed, added: d.added }); }
   function refreshTile() { try { var old = document.querySelector('.memhero-brain-tile'); if (old && old.parentNode) old.parentNode.replaceChild(buildTile(), old); } catch (e) {} }
   function onBridge(e) {
     var d = e && e.data; if (!d || d.__memheroBrain == null) return;
     if (d.__memheroBrain === 'settings' && d.settings) { _settingsCache = d.settings; _army = null; }
     else if (d.__memheroBrain === 'request') { broadcast(); }   // a freshly-built iframe asks the main pane for current settings
-    else if (d.__memheroBrain === 'userdesc') { writeUserDesc(d.observations, d.visual); try { (d.observations || []).slice(-2).forEach(rookMoment); } catch (e) {} }   // iframe learned more about the user -> persist it + feed Rook's dream moments
-    else if (d.__memheroBrain === 'read') { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; renderReadout(); }   // live read + feeling + lobe state -> the tile
+    // (userdesc bridge op removed — the brain now persists learned facts through Broker.write('user.facts'))
+    else if (d.__memheroBrain === 'read') { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; _gov = d.gov || null; _mem = d.mem || null; try { renderReadout(); } catch (e) {} try { renderCouncilDash(); } catch (e) {} try { renderLobesDash(); } catch (e) {} try { renderGovDash(); } catch (e) {} try { renderMemDash(); } catch (e) {} try { (d.thoughts || []).forEach(renderThought); } catch (e) {} }   // live read + feeling + the 5 LCARS layers
+    else if (d.__memheroBrain === 'thoughts') { try { (d.thoughts || []).forEach(renderThought); } catch (e) {} }   // the live thought stream (its own message, decoupled from the read post)
     else if (d.__memheroBrain === 'answer') { _answer = d.text; renderAnswer(); var _r = _askResolvers.shift(); if (_r) _r(d.text); }   // resolve any awaiting /brain ask
     else if (d.__memheroBrain === 'ask') { try { var t = army().about(d.q); window.parent && window.parent.postMessage({ __memheroBrain: 'answer', text: t }, '*'); } catch (e) {} }
     else if (d.__memheroBrain === 'mem-open') { try { window.__perchance_fork__ && window.__perchance_fork__.openMemory && window.__perchance_fork__.openMemory(); } catch (e) {} }
-    else if (d.__memheroBrain === 'lore-add') { addLoreEntries(d.entries); }   // the brain writes learned facts into the canonical lore store
-    else if (d.__memheroBrain === 'char-set') { setCharacter(d.fields); }        // brain edits the bot's name/description
-    else if (d.__memheroBrain === 'user-set') { setUserChar(d.fields); }         // brain edits the user character's name/description
+    // (char-set / user-set / lore-add bridge ops removed — the brain now writes these through the unified Broker RPC)
     else if (d.__memheroBrain === 'feedback') { try { army().ingestReaction({ kind: d.kind, toward: d.toward || charName() }); } catch (e) {} }   // UI signal -> the live brain
+    else if (d.__memheroBrain === 'manage-now') { try { manageProfileNow(); } catch (e) {} }          // IFRAME: /profile -> recompute + (re)write the user-data fields now
+    else if (d.__memheroBrain === 'broker') { brokerRPC(d); }                                       // PARENT: the brain's unified read/write over every editable surface
+    else if (d.__memheroBrain === 'broker-result') { try { var _bp = _brokerPending && _brokerPending[d.rid]; if (_bp) { delete _brokerPending[d.rid]; _bp({ ok: d.ok, value: d.value }); } } catch (e) {} }   // IFRAME: resolve a pending broker call
+    else if (d.__memheroBrain === 'rich-data') { try { if (d.which === 'char') _richChar = d.sections || []; else _richUser = d.sections || []; } catch (e) {} }   // IFRAME: a rich profile was edited -> refresh the surfacing cache
     else if (d.__memheroBrain === 'recall-get') { sendRecall(); }                                  // iframe wants the stored memory/lore
+    // (prof-get bridge op removed — the brain now reads the persisted profile through Broker.read('user.facts'))
     else if (d.__memheroBrain === 'recall-data') { _recall = { lore: d.lore || [], memories: d.memories || [], summaries: d.summaries || [] }; }   // cache it
+    // (prof-data bridge op removed — refreshProfile() now rehydrates directly via Broker.read('user.facts'))
     else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; }   // iframe drops its working obs (the main pane already stripped the persisted note)
     else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); } }   // iframe drops matching obs (main pane already pruned the persisted note)
   }
@@ -46696,16 +46899,153 @@ Use this template for your response:
         bondStage: bondStage(), bondTrust: (RK.bond && RK.bond.trust) || 0.5, bondTrend: bondTrend(),
         sentinel: (RK.sentinel && RK.sentinel.category && Date.now() - RK.sentinel.at < 60000) ? RK.sentinel.category : '',
         salience: (RK.salience && RK.salience.level && Date.now() - RK.salience.at < 30000) ? RK.salience.reason : '',
-        epistemic: (RK.epistemic && RK.epistemic.stance && Date.now() - RK.epistemic.at < 30000) ? RK.epistemic.stance : ''
+        epistemic: (RK.epistemic && RK.epistemic.stance && Date.now() - RK.epistemic.at < 30000) ? RK.epistemic.stance : '',
+        profile: _profileHit || '',   // a known fact about the user that the latest message touched
+        change: _profileChangeTag || '',   // a known fact that the latest message UPDATED
+        loop: _loopHit || ''   // a pending thing the brain is circling back to
       };
     } catch (e) { return null; }
   }
+  function govSnapshot() {   // LAYER 4: the Rook governance layer
+    try {
+      if (load().rook === false) return { on: false };
+      return { on: true, drive: (typeof rkDrivesTop === 'function') ? rkDrivesTop() : '', integrity: !!(_rkIntegrityHitAt && Date.now() - _rkIntegrityHitAt < 600000), restraint: !!(_rkLastDownAt && Date.now() - _rkLastDownAt < 600000), pending: ((RK.parliament && RK.parliament.pending) || []).length, bills: ((RK.parliament && RK.parliament.hansard) || []).length, telos: !!(RK.purpose && RK.purpose.telos) };
+    } catch (e) { return null; }
+  }
+  function memSnapshot() {   // LAYER 5: the knowledge stores
+    try {
+      return { facts: (_userObs || []).length, visual: (_userVisual || []).length, profileU: (_richUser || []).length, profileC: (_richChar || []).length, lore: ((_recall && _recall.lore) || []).length, memories: ((_recall && _recall.memories) || []).length, summaries: ((_recall && _recall.summaries) || []).length, moments: ((RK && RK.moments) || []).length };
+    } catch (e) { return null; }
+  }
+  // ── OPEN LOOPS: a companion remembers what you're waiting on. When the user flags something pending
+  //    with weight (an interview tomorrow, a worry, a plan), track it; once the conversation has moved on,
+  //    surface a gentle follow-up so the reply can circle back ("how did it go?") instead of letting it
+  //    drop — and clear it when they give closure. Within-session, iframe-side. Sets _loopHit for the tile.
+  var LOOP_NOUN = /\b(interview|exam|test|quiz|meeting|appointment|presentation|deadline|surgery|operation|results|diagnosis|biopsy|trip|flight|vacation|wedding|funeral|date|first day|big day|launch|audition|tryout|recital|performance|defen[cs]e|thesis|evaluation|moving day|closing|hearing|trial|procedure|scan|checkup|check-up)\b/i;
+  var LOOP_CUE = /\b(tomorrow|tonight|later today|this (?:week|weekend|evening|afternoon|morning)|next (?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|soon|upcoming|coming up|in an hour|in a (?:few|couple)|any day now)\b/i;
+  var LOOP_INTENT = /\b(i(?:'?m| am) going to|i(?:'?ll| will)|i need to|i have to|i(?:'?ve| have) got to|planning to|about to|gonna|i want to)\b/i;
+  var LOOP_FEEL = /\b(worried|nervous|anxious|scared|stressed|terrified|excited|can'?t wait|hoping|afraid|dreading)\b/i;
+  var LOOP_CLOSE = /\b(went (?:\w+ ){0,1}(?:well|badly|ok|okay|fine|great|terribly|terrible|amazing|awful|horribly|smoothly|perfectly|alright)|(?:it'?s|is|was|are|they'?re) (?:over|done|finished)|i (?:did|finished|passed|failed|aced|nailed|bombed|survived|got through|made it through)|turned out|ended up|already (?:did|had|went|finished)|just (?:got back|finished)|yesterday|earlier today|last night)\b/i;
+  var _openLoops = [], _loopTurn = 0, _loopHit = '';
+  // ── THOUGHT STREAM (ported from Chloe-solo's "mind drawer"): a live feed of the brain working.
+  //    Each turn the brain emits a few short, first-person, plain-language thoughts (a fact learned, a
+  //    guard raised, a follow-up recalled, its mood) tagged by category; they ride the existing `read`
+  //    post to the parent's Thoughts drawer. Prettified at the source so it reads like a mind, not a log. ──
+  var _thoughts = [], _lastMoodThought = '', _lastNeedThought = '', _priming = false;
+  var THINK_AMBIENT = ['reading you', 'weighing what matters', 'turning it over', 'taking you in', 'following your drift', 'holding the thread'];
+  function think(tag, text) { if (_priming) return; try { text = String(text || '').trim(); if (!text) return; _thoughts.push({ tag: tag || 'flow', text: text.slice(0, 140) }); while (_thoughts.length > 24) _thoughts.shift(); } catch (e) {} }
+  function drainThoughts() { var out = _thoughts.slice(); _thoughts.length = 0; return out; }
+  // ship thoughts on their OWN message — NOT piggybacked on the `read` post (whose army().inspect() could
+  // throw and swallow them) and NOT one turn late. Called at the end of every turn + on edits.
+  function flushThoughts() { try { if (_thoughts.length && window.parent) window.parent.postMessage({ __memheroBrain: 'thoughts', thoughts: drainThoughts() }, '*'); } catch (e) {} }
+  // ── REAL-WORLD GROUNDING (ported from Chloe-solo's browserContext/buildInjections): the actual local
+  //    clock fed into each reply so the companion knows the time of day, the date, "today" — used when it
+  //    helps (greetings, scheduling), never recited. Iframe-side; Date/Intl/navigator are available here. ──
+  var _lastDaypart = '';
+  function dayPart(h) { return h < 5 ? 'late night' : h < 12 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'night'; }
+  function deviceTimeLine() {
+    try {
+      var d = new Date(), locale = '', tz = '', dateStr, timeStr;
+      try { locale = navigator.language || ''; } catch (e) {}
+      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+      try { dateStr = d.toLocaleDateString(locale || undefined, { weekday: 'long', month: 'long', day: 'numeric' }); } catch (e) { dateStr = d.toDateString(); }
+      try { timeStr = d.toLocaleTimeString(locale || undefined, { hour: 'numeric', minute: '2-digit' }); } catch (e) { timeStr = ''; }
+      if (!timeStr) return '';
+      var dp = dayPart(d.getHours()); if (dp !== _lastDaypart) { _lastDaypart = dp; think('flow', 'it’s ' + dp + ' for them — ' + timeStr); }   // notice the time of day in the stream
+      return 'Real-world context: it is ' + timeStr + ' on ' + dateStr + (tz ? ' (' + tz + ')' : '') + '. Use this when it helps (greetings, time of day, “today”), but don’t recite it unprompted.';
+    } catch (e) { return ''; }
+  }
+  // ── RICH PROFILE SURFACING (iframe): cache the sectioned user/character profiles and, each turn, inject
+  //    only the SECTIONS relevant to the current message (keyword overlap) — so a 2,600-token bible costs
+  //    ~150 tokens/turn instead of dumping it all. Cache is rehydrated from the Broker + refreshed on edit. ──
+  var _richUser = [], _richChar = [], _richHit = '';
+  function refreshRich() { try { Broker.read('user.profile').then(function (s) { _richUser = s || []; }); Broker.read('character.profile').then(function (s) { _richChar = s || []; }); } catch (e) {} }
+  function sectionScore(sec, words) { var hay = (sec.heading + ' ' + sec.body).toLowerCase(), sc = 0, seen = {}; words.forEach(function (w) { if (!seen[w] && hay.indexOf(w) >= 0) { seen[w] = 1; sc++; } }); return sc; }
+  function relevantSections(userText) {
+    _richHit = '';
+    var t = String(userText || '').toLowerCase();
+    var words = (t.match(/[a-z'’]{4,}/g) || []).filter(function (w) { return !RK_BOND_STOP[w]; });
+    if (!words.length || (!_richUser.length && !_richChar.length)) return '';
+    var out = [], tags = [];
+    [['the user', _richUser], ['you (this character)', _richChar]].forEach(function (pair) {
+      var best = (pair[1] || []).map(function (s) { return { s: s, sc: sectionScore(s, words) }; }).filter(function (x) { return x.sc >= 2; }).sort(function (a, b) { return b.sc - a.sc; })[0];
+      if (best) { out.push('About ' + pair[0] + ' — ' + best.s.heading + ': ' + best.s.body.replace(/\s+/g, ' ').slice(0, 300)); tags.push(best.s.heading); }
+    });
+    _richHit = tags.join(', ');
+    return out.join('\n');
+  }
+  function loopGist(t) {
+    var s = String(t || '').replace(/\s+/g, ' ').trim(), m;
+    try { m = s.match(new RegExp('([^.!?]*' + LOOP_NOUN.source + '[^.!?]*)', 'i')); } catch (e) { m = null; }
+    var g = (m ? m[1] : s).trim().replace(/^(?:and|but|so|well|um|uh|i mean)\b[ ,]*/i, '');
+    if (g.length > 80) g = g.slice(0, 80).replace(/\s+\S*$/, '') + '…';
+    return g;
+  }
+  function detectOpenLoop(userText) {
+    var t = String(userText || ''); if (t.length < 8) return;
+    var noun = LOOP_NOUN.test(t), feel = LOOP_FEEL.test(t), future = LOOP_CUE.test(t) || LOOP_INTENT.test(t);
+    if (!((noun && (future || feel)) || (feel && /\babout\b/i.test(t) && future))) return;   // a concrete pending thing framed as upcoming/charged
+    var gist = loopGist(t); if (!gist || gist.length < 4) return;
+    var key = gist.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 48);
+    for (var i = 0; i < _openLoops.length; i++) { if (_openLoops[i].key === key) { _openLoops[i].turn = _loopTurn; return; } }   // refresh, don't duplicate
+    _openLoops.push({ gist: gist, key: key, turn: _loopTurn, surfaced: 0 });
+    while (_openLoops.length > 6) _openLoops.shift();
+  }
+  function resolveLoops(userText) {
+    var t = String(userText || '').toLowerCase(); if (!_openLoops.length || !LOOP_CLOSE.test(t)) return;
+    _openLoops = _openLoops.filter(function (lp) {
+      var lw = (lp.key.match(/[a-z']{4,}/g) || []);
+      return !lw.some(function (w) { return t.indexOf(w) >= 0; });   // closure cue + topic overlap -> resolved, drop it
+    });
+  }
+  function followUpLine() {
+    _loopHit = ''; if (!_openLoops.length) return '';
+    var due = null;
+    for (var i = 0; i < _openLoops.length; i++) { var lp = _openLoops[i]; if (_loopTurn - lp.turn >= 3 && (!lp.surfaced || _loopTurn - lp.surfaced >= 6)) { if (!due || lp.turn < due.turn) due = lp; } }   // stale enough to circle back, not nagged recently
+    if (!due) return '';
+    due.surfaced = _loopTurn; _loopHit = due.gist;
+    return 'earlier they brought up “' + due.gist + '” and the moment has moved on — if it fits, check in on how it’s going; they’ll feel remembered';
+  }
+  // PROFILE-AWARE READ: the brain gathers a profile of the user (_userObs: name/role/age/likes/
+  // dislikes/home/work) but the steer never used it. This closes the loop — when the CURRENT message
+  // touches something already known about them, direct attention to that specific knowledge so the
+  // reply draws on the relationship's history instead of treating every turn like a stranger's.
+  // Differentiates by type: a known like -> lean in; a known dislike -> tread gently; identity/role/
+  // home/work -> speak with that context. Sets _profileHit (a short label) for the Brain tile.
+  function profileLine(userText) {
+    _profileHit = '';
+    if (load().learnUserDesc === false || !_userObs || !_userObs.length) return '';
+    var t = ' ' + String(userText || '').toLowerCase() + ' ', m;
+    function touches(subj) {   // a 4+char content-word of the fact appears in the message (crude singular-stem so "spiders" matches "spider")
+      var words = (String(subj).toLowerCase().match(/[a-z'’]{4,}/g) || []);
+      return words.length && words.some(function (w) { return t.indexOf(w) >= 0 || (w.charAt(w.length - 1) === 's' && t.indexOf(w.slice(0, -1)) >= 0); });
+    }
+    var WORK_RX = /\b(work|works|working|worked|job|jobs|shift|shifts|office|workplace|career|boss|coworker|colleague|overtime)\b/;   // they reference the WORK domain -> surface their known job even if they don't name it
+    var HOME_RX = /\b(home|house|moving|moved|move|city|town|neighbou?rhood|apartment|flat|commute)\b/;
+    var likes = [], dislikes = [], ctx = [];
+    for (var i = 0; i < _userObs.length; i++) {
+      var o = _userObs[i];
+      if ((m = /^Likes (.+)$/i.exec(o))) { if (touches(m[1])) likes.push(m[1].trim()); }
+      else if ((m = /^Dislikes (.+)$/i.exec(o))) { if (touches(m[1])) dislikes.push(m[1].trim()); }
+      else if ((m = /^Works (?:as|at|in|for)\s+(.+)$/i.exec(o))) { if (touches(m[1]) || WORK_RX.test(t)) ctx.push('their work (' + m[1].trim() + ')'); }
+      else if ((m = /^Lives in (.+)$/i.exec(o))) { if (touches(m[1]) || HOME_RX.test(t)) ctx.push('where they live (' + m[1].trim() + ')'); }
+      else if ((m = /^Is an? (.+)$/i.exec(o))) { if (touches(m[1])) ctx.push('that they’re ' + m[1].trim()); }
+    }
+    var out = [], tag = [];
+    if (likes.length) { out.push('they care about ' + likes.slice(0, 2).join(' and ') + ' — you know this matters to them, meet it'); tag.push('likes ' + likes[0]); }
+    if (dislikes.length) { out.push('they’re not fond of ' + dislikes.slice(0, 2).join(' or ') + ' — tread considerately, you remember this'); tag.push('dislikes ' + dislikes[0]); }
+    if (ctx.length) { out.push('this touches what you know of them — ' + ctx.slice(0, 2).join('; ') + ' — let it inform you'); tag.push(ctx[0].replace(/\s*\(.*\)$/, '')); }
+    _profileHit = tag.slice(0, 2).join(', ');
+    return out.join('; ');
+  }
   function rookSteer(userText) {
     var t = String(userText || ''), bits = [];
+    _loopTurn++; try { resolveLoops(t); detectOpenLoop(t); } catch (e) {}   // track things they're waiting on; clear ones they've closed
+    think('cog', THINK_AMBIENT[_loopTurn % THINK_AMBIENT.length]);   // a heartbeat of cognition for the Thoughts stream
     try { bondSnapshot(); if (ROOK_POS.test(t)) bondNudge(0.01); else if (ROOK_VENT.test(t)) bondNudge(0.02); } catch (e) {}   // trust eases up on warmth + shared vulnerability
-    try { sentinelScan(t); var sl = sentinelLine(); if (sl) bits.push(sl); } catch (e) {}   // a detected threat leads everything — fast protective response
-    try { epistemicScan(t); var el = epistemicLine(); if (el) bits.push(el); } catch (e) {}   // knowledge-boundary — hedge/ask rather than confabulate
-    try { salienceScan(t); var sa = salienceLine(); if (sa) bits.push(sa); } catch (e) {}   // surprise — orient to a sudden shift
+    try { sentinelScan(t); var sl = sentinelLine(); if (sl) { bits.push(sl); think('guard', 'on alert — ' + ((RK.sentinel && RK.sentinel.category) || 'something feels off')); } } catch (e) {}   // a detected threat leads everything — fast protective response
+    try { epistemicScan(t); var el = epistemicLine(); if (el) { bits.push(el); think('cog', 'staying honest about what I actually know here'); } } catch (e) {}   // knowledge-boundary — hedge/ask rather than confabulate
+    try { salienceScan(t); var sa = salienceLine(); if (sa) { bits.push(sa); think('flow', (RK.salience && RK.salience.reason) || 'something shifted'); } } catch (e) {}   // surprise — orient to a sudden shift
     try { agencyTick(t); var al = agencyLine(); if (al) bits.push(al); } catch (e) {}   // the goal she's pursuing for her strongest current need leads the read
     try { var bl = bondLine(); if (bl) bits.push(bl); } catch (e) {}   // the relationship's arc — speak from the history
     if (ROOK_VENT.test(t)) bits.push('they want to be heard, not fixed — hold back advice; serve the long arc, not just the moment');
@@ -46716,6 +47056,17 @@ Use this template for your response:
     // emotion regulation (manage HER OWN feeling) — steadying under an attack, recovering after a knock
     if (Date.now() - _rkIntegrityHitAt < 600000) bits.push('steady yourself — stay warm and even; they’re testing, not turning on you');
     else if (_rkLastDownAt && Date.now() - _rkLastDownAt < 600000) bits.push('that last one didn’t land — recover, don’t over-apologize or spiral; adjust and move on');
+    if (_profileChange) bits.push('they just told you something that updates what you knew — ' + _profileChange);   // a fact CHANGED this turn -> don't cling to the stale version
+    try { var pf = profileLine(t); if (pf) bits.push(pf); } catch (e) {}                         // draw on what's already known about THEM (their gathered profile)
+    if (load().learnUserDesc !== false && _userObs.length > _profileLen) bits.push('they just shared something about themselves — register it; you’re building a picture of who they are');   // a fresh self-disclosure this turn
+    _profileLen = _userObs.length;
+    try { var fu = followUpLine(); if (fu) bits.push(fu); } catch (e) {}                          // circle back to something they're waiting on
+    // surface the turn's cognition into the Thoughts stream (first-person, prettified)
+    if (_profileChangeTag) think('mem', 'updating what I knew — ' + _profileChangeTag);
+    else if (_profileHit) think('mem', 'remembering ' + _profileHit);
+    if (_loopHit) think('mem', 'still on my mind — ' + _loopHit);
+    try { var _nd = (RK.agency && RK.agency.need) || ''; if (_nd && _nd !== _lastNeedThought) { _lastNeedThought = _nd; think('plan', 'pursuing: ' + _nd); } } catch (e) {}   // the need/goal the agency lobe is driving
+    try { var ml = moodLine(); if (ml && ml !== _lastMoodThought) { _lastMoodThought = ml; think('mood', ml); } } catch (e) {}
     return bits.length ? ('Inner read (shape HOW you respond; do not state it): ' + bits.join('; ') + '.') : '';
   }
 
@@ -46921,6 +47272,7 @@ Use this template for your response:
   /* ===================== the live wiring harness (oc context) ===================== */
   var LEAD = 'Direction for your next reply:', _lastRead = '', _wired = false;   // the steer's lead-in (also the strip boundary)
   var _userObs = [], _userVisual = [], _descTurns = 0, _lorePromoted = {};   // what the brain learns about the user as the story unfolds
+  var _profileLen = 0, _profileHit = '', _profileChange = '', _profileChangeTag = '';   // track the profile so the steer can notice a fresh disclosure, draw on known facts, AND catch when a fact is UPDATED (the latest match/change is surfaced to the Brain tile)
   function stripBrain(s) { s = String(s || ''); var i = s.indexOf(LEAD); if (i < 0) return s.trim(); return s.slice(0, i).replace(/\n+$/, '').trim(); }
   function ocLive() { return !!(window.oc && window.oc.thread && typeof window.oc.thread.on === 'function' && window.oc.character && Array.isArray(window.oc.thread.messages)); }
   function userName() { try { return (oc.thread.userCharacter && oc.thread.userCharacter.name) || 'You'; } catch (e) { return 'You'; } }
@@ -46952,37 +47304,53 @@ Use this template for your response:
     _wired = true;   // oc is sealed (preventExtensions); keep our flag local
     refreshUser();
     // prime: walk the recent backlog so the brain already has the conversation in working memory
-    try { (oc.thread.messages || []).slice(-12).forEach(feedMessage); } catch (e) {}
+    _priming = true; try { (oc.thread.messages || []).slice(-12).forEach(feedMessage); } catch (e) {} _priming = false;   // prime silently — don't flood the Thoughts stream with backlog
+    _profileLen = _userObs.length;   // backlog-primed obs aren't a "fresh disclosure" on the first new turn
     refreshRecall();
+    refreshProfile();   // rehydrate the persisted user profile so the steer knows them across sessions
+    refreshRich();      // cache the sectioned user/character rich profiles for context-relevant surfacing
     // every new message keeps the brain current; a user turn that expects a reply also gets steered
     oc.thread.on('MessageAdded', async function () {
       try {
         refreshUser();
         var msgs = oc.thread.messages || [], last = msgs[msgs.length - 1]; if (!last) return;
         feedMessage(last);
-        try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot() }, '*'); } catch (e) {}   // live read + feeling, every turn
+        if (last.author === 'user') { try { think('cog', 'reading you: ' + String(last.content || '').replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} }   // a perceptual thought on EVERY user message, NOT gated by the steer toggle or the await-laden branch
+        try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot() }, '*'); } catch (e) {}   // live read + feeling, every turn
+        try { flushThoughts(); } catch (e) {}   // ship the perceptual thoughts NOW — before the await-laden, toggle-gated reply branch (so the feed lives even if steering is off or decide() throws)
         var s = load(), base = stripBrain(oc.character.reminderMessage);
         if (s.useForReplies && last.author === 'user' && last.expectsReply !== false) {
           var dir = await decide(last.content); _lastRead = dir;
+          if (dir) try { think('steer', 'deciding HOW to respond (not just what) — ' + String(dir).replace(/\s+/g, ' ').slice(0, 76)); } catch (e) {}   // the council's reply directive: the brain shapes approach/tone, the model writes the words
           var ground = ''; try { ground = relevantEntry(last.content); } catch (e) {}
+          if (ground) try { think('recall', 'recalling: ' + String(ground).replace(/\s+/g, ' ').slice(0, 70)); } catch (e) {}   // a stored memory/lore entry surfaced
           if (ground && ground.length > 240) { ground = ground.slice(0, 240).replace(/\s+\S*$/, '') + '\u2026'; }   // bound the grounding snippet so a long summary can't bloat the send (iframe has no tokenizer; ~60-token char proxy)
           var rookLine = ''; try { if (s.rook !== false) rookLine = rookSteer(last.content); } catch (e) {}   // Rook layer: governance/foresight/restraint inner read (on by default)
+          try { var _insp = army().inspect(); var _cl = _insp.council || []; var _spoke = _cl.filter(function (c) { return c.spokeLast || c.standing === 'core' || c.standing === 'seated'; }).map(function (c) { return c.id; }); if (_spoke.length) think('council', 'weighing it across ' + _spoke.length + ' inner voices (a council, not one model): ' + _spoke.slice(0, 4).join(', ')); } catch (e) {}  // which faculties weighed in
           var steer = dir + (rookLine ? ' ' + rookLine : '') + (ground ? ' Draw on what is established: ' + ground : '');   // grounded in the thread's stored memory/lore
-          oc.character.reminderMessage = steer ? ((base ? base + '\n\n' : '') + LEAD + ' ' + steer) : base;
-          _descTurns++; if (_descTurns === 2 || _descTurns % 4 === 0) { pushUserDesc(); pushLore(); }   // refresh the learned description + lore as the story moves
+          var ctxLine = ''; try { ctxLine = deviceTimeLine(); } catch (e) {}   // real-world grounding: the actual local time/date (ported from Chloe-solo's device-context injection)
+          var richLine = ''; try { richLine = relevantSections(last.content); } catch (e) {}   // only the rich-profile sections relevant to THIS message (keeps a big bible lean)
+          if (richLine) try { think('mem', 'drawing on background: ' + _richHit); } catch (e) {}
+          var lead = steer ? (LEAD + ' ' + steer) : '';
+          var extra = [ctxLine, richLine ? ('Relevant background:\n' + richLine) : '', lead].filter(Boolean).join('\n');
+          oc.character.reminderMessage = extra ? ((base ? base + '\n\n' : '') + extra) : base;
+          _descTurns++; if (load().manageProfile || _descTurns === 2 || _descTurns % 4 === 0) { pushUserDesc(); pushLore(); }   // refresh the learned description + lore as the story moves (every turn while actively managing)
           if (_descTurns % 3 === 0) refreshRecall();   // keep the stored-memory cache warm
         } else {
           oc.character.reminderMessage = base; // keep the steer out of non-reply turns
+          if (last.author === 'user' && s.useForReplies === false) { try { think('guard', '“steer replies” is off in the Brain tile — I’m watching but not shaping this reply'); } catch (e) {} }   // tell the user WHY the rich per-turn thoughts are quiet
         }
+        try { flushThoughts(); } catch (e) {}   // ship this turn's thoughts on their own message, now (no army()-coupling, no lag)
       } catch (e) {}
     });
     // an edit changes the read — re-perceive the latest user line
     function _latestUser() { var m = oc.thread.messages || [], i; for (i = m.length - 1; i >= 0; i--) if (m[i].author === 'user') return m[i]; return null; }
-    function pushRead() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot() }, '*'); } catch (e) {} }
+    function pushRead() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot() }, '*'); } catch (e) {} try { flushThoughts(); } catch (e) {} }
     function reperceiveLatest() { try { var lu = _latestUser(); if (lu) { var t = resolvePlaceholders(lu.content); army().perceive({ who: userName(), role: 'user', text: t, valence: valence(t) }); } } catch (e) {} pushRead(); }
     try { oc.thread.on('MessageEdited', function () { reperceiveLatest(); }); } catch (e) {}                                   // an edit changes the read
     try { oc.thread.on('MessageDeleted', function () { reperceiveLatest(); refreshRecall(); }); } catch (e) {}                  // a deletion changes the backlog -> refresh read + stored-memory cache
     try { oc.thread.on('MessageInserted', function () { try { var m = oc.thread.messages || []; if (m.length) feedMessage(m[m.length - 1]); } catch (e) {} pushRead(); }); } catch (e) {}   // an inserted line (/ai, /nar, /user) is perceived
+    try { think('cog', 'brain online — watching this chat'); flushThoughts(); } catch (e) {}   // LIVENESS: if the iframe brain is alive + the bridge works, this line appears in the Thoughts feed
     return true;
   }
 
@@ -46996,15 +47364,45 @@ Use this template for your response:
     try { var cn = charName(); if (cn && cn.length >= 2 && !/^\{\{/.test(cn)) text = text.replace(new RegExp('\\b' + cn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi'), '{{char}}'); } catch (e) {}   // a mention of the AI's name adapts to {{char}} (survives a rename)
     var k = normObs(text); if (!k) return; for (var i = 0; i < list.length; i++) { if (normObs(list[i]) === k) { return; } } list.push(text.trim()); while (list.length > cap) list.shift();
   }
+  // a self-fact about the user that fills a SINGLETON slot (name/age/role/home/work) or a preference
+  // can UPDATE a prior value. mergeSelfObs supersedes the stale entry iframe-side (so _userObs stays
+  // current, like the parent's note does) and records the change so the steer can acknowledge it.
+  function describeChange(oldText, newText) {
+    var info = obsKey(newText), o, n;
+    if (info.k === 'home') { o = oldText.replace(/^Lives in /i, ''); n = newText.replace(/^Lives in /i, ''); return { steer: 'they\u2019ve moved (' + o + ' \u2192 ' + n + ') \u2014 acknowledge it, don\u2019t keep referring to the old place', tag: 'moved \u2192 ' + n }; }
+    if (info.k === 'work') { o = oldText.replace(/^Works (?:as|at|in|for)\s*/i, ''); n = newText.replace(/^Works (?:as|at|in|for)\s*/i, ''); return { steer: 'their work changed (' + o + ' \u2192 ' + n + ') \u2014 register the new situation', tag: 'work \u2192 ' + n }; }
+    if (info.subj != null) { var liked = /^Likes/i.test(newText); return { steer: 'their feeling about ' + info.subj + ' flipped \u2014 they ' + (liked ? 'like' : 'don\u2019t like') + ' it now; drop the old assumption', tag: (liked ? 'now likes ' : 'now dislikes ') + info.subj }; }
+    if (info.k === 'age') { return { steer: 'they\u2019re ' + newText + ' now \u2014 update your sense of them', tag: newText }; }
+    if (info.k === 'role') { o = oldText.replace(/^Is an? /i, ''); n = newText.replace(/^Is an? /i, ''); return { steer: 'how they describe themselves shifted (' + o + ' \u2192 ' + n + ')', tag: 'now ' + n }; }
+    if (info.k === 'name') { n = newText.replace(/^Goes by /i, ''); return { steer: 'they go by ' + n + ' now \u2014 use it', tag: 'name \u2192 ' + n }; }
+    return { steer: 'something they told you before changed \u2014 ' + newText, tag: 'updated' };
+  }
+  function mergeSelfObs(text) {
+    var t = String(text || '').trim(); if (!t) return;
+    try {
+      var info = obsKey(t);
+      if (info.single || info.subj != null) {
+        for (var i = _userObs.length - 1; i >= 0; i--) {                         // backwards so splice is safe
+          var ei = obsKey(_userObs[i]);
+          var same = (info.single && ei.single && ei.k === info.k) || (info.subj != null && ei.subj === info.subj);
+          if (same && normObs(_userObs[i]) !== normObs(t)) { var ch = describeChange(_userObs[i], t); _profileChange = ch.steer; _profileChangeTag = ch.tag; _userObs.splice(i, 1); }   // a known fact got a new value
+        }
+      }
+    } catch (e) {}
+    var _before = _userObs.length;
+    pushObs(_userObs, text, 14);   // {{char}} normalization + exact-dedup + cap happen here
+    if (_userObs.length > _before) think('mem', 'noting about you — ' + t.toLowerCase());   // a genuinely new fact (a supersede keeps length the same)
+  }
   function extractSelfObs(text) {
     var t = String(text || ''); var m;
-    if ((m = t.match(/\b(?:my name is|call me|i go by)\s+([A-Z][\w'\u2019-]{1,30})/i))) pushObs(_userObs, 'Goes by ' + m[1], 14);
-    if ((m = t.match(/\bi(?:'m| am)\s+(?:a|an)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| but | who | and )/i))) pushObs(_userObs, 'Is a ' + m[1].trim(), 14);
-    if ((m = t.match(/\bi(?:'m| am)\s+(\d{1,2})\s*(?:years old|yo)\b/i))) pushObs(_userObs, m[1] + ' years old', 14);
-    if ((m = t.match(/\bi\s+(?:like|love|enjoy|prefer)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Likes ' + m[1].trim(), 14);
-    if ((m = t.match(/\bi\s+(?:hate|dislike|can'?t stand|despise)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Dislikes ' + m[1].trim(), 14);
-    if ((m = t.match(/\bi live in ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and | with )/i))) pushObs(_userObs, 'Lives in ' + m[1].trim(), 14);
-    if ((m = t.match(/\bi work (as|at|in|for) ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userObs, 'Works ' + m[1].toLowerCase() + ' ' + m[2].trim(), 14);
+    _profileChange = ''; _profileChangeTag = '';   // reset each turn -> only THIS turn's change rides into the steer/tile
+    if ((m = t.match(/\b(?:my name is|call me|i go by)\s+([A-Z][\w'\u2019-]{1,30})/i))) mergeSelfObs('Goes by ' + m[1]);
+    if ((m = t.match(/\bi(?:'m| am)\s+(?:a|an)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| but | who | and )/i))) mergeSelfObs('Is a ' + m[1].trim());
+    if ((m = t.match(/\bi(?:'m| am)\s+(\d{1,2})\s*(?:years old|yo)\b/i))) mergeSelfObs(m[1] + ' years old');
+    if ((m = t.match(/\bi\s+(?:like|love|enjoy|prefer)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) mergeSelfObs('Likes ' + m[1].trim());
+    if ((m = t.match(/\bi\s+(?:hate|dislike|can'?t stand|despise)\s+([a-z][\w '\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) mergeSelfObs('Dislikes ' + m[1].trim());
+    if ((m = t.match(/\bi live in ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and | with )/i))) mergeSelfObs('Lives in ' + m[1].trim());
+    if ((m = t.match(/\bi work (as|at|in|for) ([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) mergeSelfObs('Works ' + m[1].toLowerCase() + ' ' + m[2].trim());
     if ((m = t.match(/\bi\s+have\s+([a-z][\w ,'\u2019-]{2,40}?)\s+(hair|eyes?|skin)\b/i))) pushObs(_userVisual, m[1].trim() + ' ' + m[2].toLowerCase(), 8);
     if ((m = t.match(/\bi(?:'m| am)\s+wearing\s+([a-z][\w ,'\u2019-]{2,40}?)(?:[.,!?]|$| and )/i))) pushObs(_userVisual, 'wearing ' + m[1].trim(), 8);
     if ((m = t.match(/\bi(?:'m| am)\s+(tall|short|petite|slim|slender|muscular|curvy|athletic|lanky|stocky)\b/i))) pushObs(_userVisual, m[1].toLowerCase() + ' build', 8);
@@ -47102,8 +47500,8 @@ Use this template for your response:
   }
   function writeUserDesc(obs, visual) {
     try {
-      var db = window.db; if (!db || !db.misc) return;
-      db.misc.get('userRoleInstruction').then(function (rec) {
+      var db = window.db; if (!db || !db.misc) return Promise.resolve();
+      return db.misc.get('userRoleInstruction').then(function (rec) {
         var stored = (rec && rec.value) || '', base = stripLearned(stored), prev = parseStoredLines(stored);
         var mergedObs = mergeObs(prev.obs, obs || [], 18), mergedVis = mergeObs(prev.visual, visual || [], 8);
         return gardenNote(mergedObs).then(function (finalObs) {
@@ -47112,10 +47510,11 @@ Use this template for your response:
           var blockBudget = Math.max(0, Math.min(Math.floor(ctx * 0.12), 400, Math.floor(ctx * 0.3) - countTok(base)));
           var block = blockBudget > 8 ? buildLearnedBlock(useObs, mergedVis, blockBudget, countTok) : '';
           var value = (base + (block ? (base ? '\n\n' : '') + block : '')).trim();
+          try { if (value !== stored) emitFieldDiff('Learned user facts', stored, value); } catch (e) {}   // surface what changed in the Thoughts feed
           return db.misc.put({ key: 'userRoleInstruction', value: value });
         });
       }).catch(function () {});
-    } catch (e) {}
+    } catch (e) { return Promise.resolve(); }
   }
   /* forget: strip the whole learned block (keep the user's own text) */
   function clearLearned() {
@@ -47136,7 +47535,16 @@ Use this template for your response:
     } catch (e) {}
   }
   /* iframe side: ship the current observation set to the main pane (debounced by story progress) */
-  function pushUserDesc() { if (!load().learnUserDesc) return; try { window.parent && window.parent.postMessage({ __memheroBrain: 'userdesc', observations: _userObs.slice(), visual: _userVisual.slice() }, '*'); } catch (e) {} }
+  function pushUserDesc() { if (!load().learnUserDesc) return; try { Broker.write('user.facts', { obs: _userObs.slice(), visual: _userVisual.slice() }); } catch (e) {} }   // persist the gathered profile through the unified Broker (was the userdesc bridge op)
+  // /profile command: recompute the user profile RIGHT NOW from the WHOLE conversation and (re)write the
+  // user-data fields through the Broker. Re-scans the full backlog (the live feed only primes the last 12),
+  // writes user.facts, and adopts a learned name into an EMPTY user-name field (never clobbers one they set).
+  function manageProfileNow() {
+    try { _priming = true; (oc.thread.messages || []).forEach(function (m) { if (m && m.author === 'user' && m.content != null) { try { extractSelfObs(resolvePlaceholders(m.content)); } catch (e) {} } }); _priming = false; } catch (e) { _priming = false; }
+    try { Broker.write('user.facts', { obs: _userObs.slice(), visual: _userVisual.slice() }); } catch (e) {}
+    try { var nm = ''; _userObs.forEach(function (o) { var m = /^Goes by (.+)$/i.exec(o); if (m) nm = m[1].trim(); }); if (nm) Broker.read('user.globalName').then(function (cur) { if (!cur || !String(cur).trim()) Broker.write('user.globalName', nm); }); } catch (e) {}
+    _profileLen = _userObs.length;
+  }
 
   /* feedback -> the brain's sentiment + bonds (wire to your up/down buttons if you have them) */
   function react(kind, toward) { try { army().ingestReaction({ kind: kind, toward: toward || charName() }); } catch (e) {} }
@@ -47149,6 +47557,34 @@ Use this template for your response:
   var _STOP = /^(the|and|that|this|with|your|you|have|will|what|when|where|they|them|from|into|been|were|are|was|for|but|not|out|all|any|how|who|she|her|his|him|its|our|their|then|than|over|just|like|some|more|very|much)$/;
   function _toks(t) { return String(t || '').toLowerCase().match(/[a-z']{3,}/g) || []; }
   function refreshRecall() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'recall-get' }, '*'); } catch (e) {} }
+  function refreshProfile() {   // rehydrate _userObs/_userVisual from the persisted profile via the unified Broker (was prof-get/prof-data)
+    try {
+      Broker.read('user.facts').then(function (f) {
+        if (!f || load().learnUserDesc === false) return;
+        (f.obs || []).forEach(function (o) { pushObs(_userObs, o, 14); });
+        (f.visual || []).forEach(function (v) { pushObs(_userVisual, v, 8); });
+        _profileLen = _userObs.length;   // rehydrated facts aren't a "fresh disclosure" on the first new turn
+      });
+    } catch (e) {}
+  }
+  // ── IFRAME BROKER CLIENT: a Promise-based read/write/update over EVERY editable surface, via the
+  //    async RPC to the parent's MHBroker. This is the brain's single door to app data — no more
+  //    scattered char-set/user-set/lore-add posts. Each call gets a correlation id + a 4s timeout. ──
+  var _brokerRid = 0, _brokerPending = {};
+  function brokerCall(op, id, value) {
+    return new Promise(function (resolve) {
+      var rid = 'b' + (++_brokerRid); _brokerPending[rid] = resolve;
+      setTimeout(function () { if (_brokerPending[rid]) { delete _brokerPending[rid]; resolve({ ok: false, value: undefined }); } }, 4000);
+      try { window.parent && window.parent.postMessage({ __memheroBrain: 'broker', rid: rid, op: op, id: id, value: value }, '*'); } catch (e) { delete _brokerPending[rid]; resolve({ ok: false }); }
+    });
+  }
+  var Broker = {
+    list: function () { return brokerCall('list').then(function (r) { return r.value || []; }); },
+    read: function (id) { return brokerCall('read', id).then(function (r) { return r.value; }); },
+    write: function (id, value) { return brokerCall('write', id, value).then(function (r) { return !!r.ok; }); },
+    update: function (id, mutator) { return Broker.read(id).then(function (cur) { return Promise.resolve(mutator(cur)).then(function (nv) { return Broker.write(id, nv); }); }); },
+    addLore: function (texts) { return brokerCall('addLore', null, texts).then(function (r) { return !!r.ok; }); }
+  };
   /* the single most relevant stored entry for this turn (cheap keyword overlap, no embeddings) */
   function relevantEntry(text) {
     var pool = (_recall.lore || []).concat(_recall.memories || []).concat(_recall.summaries || []); if (!pool.length) return '';
@@ -47161,6 +47597,17 @@ Use this template for your response:
      Memories are read from message.memoriesEndingHere — the SAME source the app's prompt
      assembly and the Memory/Lore manager use — NOT the dead db.memories table (the app's
      db.memories retrieval is commented out), so curating in the manager now reaches the brain. */
+  /* main-pane side: hand the iframe the persisted user profile (parsed from the saved note) so the
+     brain's profile-aware read + contradiction-awareness work from turn one of a new session, not
+     just from facts mentioned after load. The note already round-trips obs/visual via parseStoredLines. */
+  // user.facts surface (broker read): the learned profile facts, parsed from the marked block in the
+  // user description. Storage is unchanged, so the portrait pipeline + prompt visibility are preserved.
+  function readUserFacts() {
+    try {
+      var db = window.db; if (!db || !db.misc) return Promise.resolve({ obs: [], visual: [] });
+      return db.misc.get('userRoleInstruction').then(function (rec) { var p = parseStoredLines((rec && rec.value) || ''); return { obs: (p.obs || []).slice(0, 18), visual: (p.visual || []).slice(0, 8) }; }, function () { return { obs: [], visual: [] }; });
+    } catch (e) { return Promise.resolve({ obs: [], visual: [] }); }
+  }
   function sendRecall() {
     try {
       var db = window.db; if (!db || !db.lore || window.activeThreadId == null) return;
@@ -47189,38 +47636,167 @@ Use this template for your response:
   }
 
   /* ===================== brain reads/edits the bot + the user character ===================== */
-  function setCharacter(fields) {
-    try {
-      var db = window.db; if (!db || !db.characters || window.activeCharacterId == null || !fields) return;
-      var upd = {}, allow = ['roleInstruction', 'name', 'imagePromptTriggers', 'imagePromptPrefix', 'imagePromptSuffix'];
-      allow.forEach(function (k) { if (fields[k] != null) upd[k] = String(fields[k]); });
-      if (Object.keys(upd).length) db.characters.update(window.activeCharacterId, upd).catch(function () {});
-    } catch (e) {}
+  /* ===================== THE BROKER — one read/write/update layer over EVERY editable surface =====================
+   * Replaces the brain's scattered bespoke writers (setCharacter/setUserChar/addLoreEntries + their ad-hoc
+   * bridge ops). Parent-side (it owns db/oc); the iframe brain reaches it through the async `broker` RPC.
+   * Every surface is addressed by a stable id; the registry maps each id to a storage scope + path. AiCC's
+   * own editor and the URL character-importer write the SAME db fields, so they stay in sync automatically. */
+  function _getPath(obj, path) { try { return path.split('.').reduce(function (o, k) { return (o == null ? undefined : o[k]); }, obj); } catch (e) { return undefined; } }
+  function _setPath(obj, path, val) { try { var ks = path.split('.'), o = obj, i; for (i = 0; i < ks.length - 1; i++) { if (o[ks[i]] == null || typeof o[ks[i]] !== 'object') o[ks[i]] = {}; o = o[ks[i]]; } o[ks[ks.length - 1]] = val; } catch (e) {} }
+  /* ===================== RICH PROFILE: a big, sectioned persona (e.g. a 2,600-token character bible) the
+   * brain can ingest, edit per-section, diff, and surface CONTEXTUALLY instead of dumping the whole thing
+   * into every prompt. Stored structured (parent localStorage), exposed via the Broker (user.profile /
+   * character.profile), and the relevant sections are picked per-turn by keyword overlap. ===================== */
+  function _richKey(h) { return String(h || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'section'; }
+  function parseSections(text) {
+    text = String(text || '').replace(/\r\n/g, '\n').trim(); if (!text) return [];
+    function headerOf(line) {
+      var l = line.trim(), m;
+      if ((m = /^[—–-]{1,3}\s*(.+?)\s*[—–-]{1,3}$/.exec(l))) return m[1].trim();   // — HEADER —
+      if ((m = /^#{1,3}\s+(.+?)\s*:?$/.exec(l))) return m[1].trim();                                   // # HEADER
+      if ((m = /^([A-Z][A-Z0-9 '&/().-]{2,44}):?$/.exec(l)) && l === l.toUpperCase()) return m[1].replace(/:$/, '').trim();   // ALL-CAPS HEADER
+      return null;
+    }
+    var lines = text.split('\n'), sections = [], cur = null, i;
+    for (i = 0; i < lines.length; i++) {
+      var h = headerOf(lines[i]);
+      if (h) { cur = { heading: h, body: '' }; sections.push(cur); }
+      else { if (!cur) { cur = { heading: 'Overview', body: '' }; sections.push(cur); } cur.body += (cur.body ? '\n' : '') + lines[i]; }
+    }
+    return sections.map(function (s) { return { key: _richKey(s.heading), heading: s.heading, body: s.body.trim() }; }).filter(function (s) { return s.body; });
   }
-  function setUserChar(fields) {
+  var RICH_KEY = 'memhero.richprofile.v1';
+  function richLoad() { try { return JSON.parse(localStorage.getItem(RICH_KEY)) || {}; } catch (e) { return {}; } }
+  function richGet(which) { var o = richLoad(); if (which === 'char') { var id = window.activeCharacterId; return (o.char && o.char[id]) || []; } return o.user || []; }
+  function richSet(which, sections) { var o = richLoad(); if (which === 'char') { o.char = o.char || {}; o.char[window.activeCharacterId] = sections; } else o.user = sections; try { localStorage.setItem(RICH_KEY, JSON.stringify(o)); } catch (e) {} }
+  function richWrite(which, v) {
+    var sections = (typeof v === 'string') ? parseSections(v) : (Array.isArray(v) ? v : (v && v.sections) || []);
+    var old = richGet(which); richSet(which, sections);
+    try { emitSectionDiff(which === 'char' ? 'Character profile' : 'User profile', old, sections); } catch (e) {}
+    try { postToIframes({ __memheroBrain: 'rich-data', which: which, sections: sections }); } catch (e) {}   // refresh the iframe's surfacing cache
+    return Promise.resolve(true);
+  }
+  // reassemble stored sections back into editable text (round-trips through parseSections): Overview has
+  // no header; every other section gets its "— HEADING —" back so a re-parse reproduces the same sections.
+  function richText(which) { return richGet(which).map(function (s) { return (s.heading && s.heading !== 'Overview') ? ('— ' + s.heading + ' —\n' + s.body) : s.body; }).join('\n\n'); }
+  // the viewer/editor: one modal with the user + character profiles as editable text; saves only what changed.
+  function editProfiles() {
+    if (typeof window.prompt2 !== 'function') return;
+    var u = richText('user'), c = richText('char');
+    window.prompt2({
+      userProfile: { type: 'text', label: 'YOUR profile (the user) — edit freely; sections split on “— TITLE —”, “# Title”, or ALL-CAPS lines', defaultValue: u, height: '30vh', placeholder: '(empty — paste or write your profile, then Save)' },
+      charProfile: { type: 'text', label: 'CHARACTER profile (the bot persona)', defaultValue: c, height: '30vh', placeholder: '(empty)' }
+    }, { submitButtonText: 'Save' }).then(function (res) {
+      if (!res) return;
+      if (String(res.userProfile || '').trim() !== u.trim()) richWrite('user', res.userProfile);
+      if (String(res.charProfile || '').trim() !== c.trim()) richWrite('char', res.charProfile);
+    });
+  }
+  function emitSectionDiff(label, oldSecs, newSecs) {
+    var om = {}, nm = {}, removed = [], added = [];
+    (oldSecs || []).forEach(function (s) { om[s.key] = s.body || ''; }); (newSecs || []).forEach(function (s) { nm[s.key] = s.body || ''; });
+    Object.keys(om).forEach(function (k) { if (!(k in nm)) removed.push('§ ' + k); else if (nm[k] !== om[k]) removed.push('§ ' + k + ' (changed)'); });
+    Object.keys(nm).forEach(function (k) { if (!(k in om)) added.push('§ ' + k); else if (nm[k] !== om[k]) added.push('§ ' + k + ' (changed)'); });
+    if (removed.length || added.length) renderThought({ tag: 'diff', field: label, removed: removed.slice(0, 8), added: added.slice(0, 8) });
+  }
+  // scope 'char' = db.characters[activeCharacterId].<path> (live-mirrored on oc.character; Dexie dotted-path
+  // update preserves siblings). scope 'misc' = db.misc keyed. scope 'thread' = db.threads[activeThreadId].<path>.
+  var BROKER_FIELDS = {
+    'character.name':                { scope: 'char', path: 'name', label: 'Character name' },
+    'character.description':         { scope: 'char', path: 'roleInstruction', label: 'Character description' },
+    'character.avatarUrl':           { scope: 'char', path: 'avatar.url', label: 'Character avatar URL' },
+    'character.reminder':            { scope: 'char', path: 'reminderMessage', label: 'Character reminder note' },
+    'character.greeting':            { scope: 'char', path: 'initialMessages', label: 'Opening messages' },
+    'character.imagePrefix':         { scope: 'char', path: 'imagePromptPrefix', label: 'Image prompt prefix' },
+    'character.imageSuffix':         { scope: 'char', path: 'imagePromptSuffix', label: 'Image prompt suffix' },
+    'character.imageTriggers':       { scope: 'char', path: 'imagePromptTriggers', label: 'Image prompt triggers' },
+    'character.sceneBackground':     { scope: 'char', path: 'scene.background.url', label: 'Scene background URL' },
+    'character.sceneMusic':          { scope: 'char', path: 'scene.music.url', label: 'Scene music URL' },
+    'character.customCode':          { scope: 'char', path: 'customCode', label: 'Custom code' },
+    'character.writingInstructions': { scope: 'char', path: 'generalWritingInstructions', label: 'Writing instructions' },
+    'user.name':                     { scope: 'char', path: 'userCharacter.name', label: 'User persona name (this character)' },
+    'user.description':              { scope: 'char', path: 'userCharacter.roleInstruction', label: 'User persona description (this character)' },
+    'user.avatarUrl':                { scope: 'char', path: 'userCharacter.avatar.url', label: 'User persona avatar URL' },
+    'user.globalName':               { scope: 'misc', key: 'userName', label: 'Global user name' },
+    'user.globalDescription':        { scope: 'misc', key: 'userRoleInstruction', label: 'Global user description' },
+    'thread.reminder':               { scope: 'thread', path: 'reminderMessage', label: 'Thread reminder note' },
+    'thread.name':                   { scope: 'thread', path: 'name', label: 'Thread name' },
+    // the brain's learned profile facts — a custom surface backed by the marked block in the user
+    // description (merge + AI-garden + token-budget on write; storage unchanged so portrait/visibility hold)
+    'user.facts':                    { scope: 'custom', label: 'Learned user facts (obs + visual)', read: function () { return readUserFacts(); }, write: function (v) { try { writeUserDesc((v && v.obs) || [], (v && v.visual) || []); (((v && v.obs) || [])).slice(-2).forEach(rookMoment); } catch (e) {} return Promise.resolve(true); } },
+    // rich sectioned profiles (a big persona bible the brain surfaces contextually) — both the user's and the character's
+    'user.profile':                  { scope: 'custom', label: 'User rich profile (sections)', read: function () { return Promise.resolve(richGet('user')); }, write: function (v) { return richWrite('user', v); } },
+    'character.profile':             { scope: 'custom', label: 'Character rich profile (sections)', read: function () { return Promise.resolve(richGet('char')); }, write: function (v) { return richWrite('char', v); } }
+  };
+  var MHBroker = {
+    list: function () { return Object.keys(BROKER_FIELDS).map(function (id) { var f = BROKER_FIELDS[id]; return { id: id, scope: f.scope, label: f.label }; }); },
+    read: function (id) {
+      var f = BROKER_FIELDS[id]; if (!f) return Promise.resolve(undefined);
+      if (f.read) { try { return Promise.resolve(f.read()); } catch (e) { return Promise.resolve(undefined); } }   // custom surface
+      try {
+        var db = window.db;
+        if (f.scope === 'char') { if (!db || !db.characters || window.activeCharacterId == null) return Promise.resolve(undefined); return db.characters.get(window.activeCharacterId).then(function (c) { return _getPath(c || {}, f.path); }, function () { return undefined; }); }
+        if (f.scope === 'misc') { if (!db || !db.misc) return Promise.resolve(undefined); return db.misc.get(f.key).then(function (r) { return r ? r.value : undefined; }, function () { return undefined; }); }
+        if (f.scope === 'thread') { if (!db || !db.threads || window.activeThreadId == null) return Promise.resolve(undefined); return db.threads.get(window.activeThreadId).then(function (t) { return _getPath(t || {}, f.path); }, function () { return undefined; }); }
+      } catch (e) {}
+      return Promise.resolve(undefined);
+    },
+    write: function (id, value) {
+      var f = BROKER_FIELDS[id]; if (!f) return Promise.resolve(false);
+      if (f.write) { try { return Promise.resolve(f.write(value)).then(function () { return true; }, function () { return false; }); } catch (e) { return Promise.resolve(false); } }   // custom surface
+      function doWrite() {
+        try {
+          var db = window.db, u;
+          if (f.scope === 'char') { if (!db || !db.characters || window.activeCharacterId == null) return Promise.resolve(false); u = {}; u[f.path] = value; try { if (window.oc && oc.character) _setPath(oc.character, f.path, value); } catch (e) {} return db.characters.update(window.activeCharacterId, u).then(function () { return true; }, function () { return false; }); }
+          if (f.scope === 'misc') { if (!db || !db.misc) return Promise.resolve(false); return db.misc.put({ key: f.key, value: value }).then(function () { return true; }, function () { return false; }); }
+          if (f.scope === 'thread') { if (!db || !db.threads || window.activeThreadId == null) return Promise.resolve(false); u = {}; u[f.path] = value; return db.threads.update(window.activeThreadId, u).then(function () { return true; }, function () { return false; }); }
+        } catch (e) {}
+        return Promise.resolve(false);
+      }
+      // for text surfaces, capture the old value first so a successful change emits a from→to diff thought
+      if (typeof value === 'string' && DIFF_FIELDS[id]) {
+        return MHBroker.read(id).then(function (old) { return doWrite().then(function (ok) { if (ok && String(old == null ? '' : old) !== value) { try { emitFieldDiff(f.label || id, old, value); } catch (e) {} } return ok; }); });
+      }
+      return doWrite();
+    },
+    // read-modify-write; mutator may return a value or a Promise of one
+    update: function (id, mutator) { return MHBroker.read(id).then(function (cur) { return Promise.resolve(mutator(cur)).then(function (nv) { return MHBroker.write(id, nv); }); }); }
+  };
+  // the iframe brain's async RPC entry point: { rid, op:'list'|'read'|'write'|'addLore', id, value } -> broker-result
+  function brokerRPC(d) {
+    var rid = d.rid, reply = function (ok, value) { try { postToIframes({ __memheroBrain: 'broker-result', rid: rid, ok: ok, value: value }); } catch (e) {} };
     try {
-      var db = window.db; if (!db || !db.misc || !fields) return;
-      if (fields.userName != null) db.misc.put({ key: 'userName', value: String(fields.userName) }).catch(function () {});
-      if (fields.userRoleInstruction != null) db.misc.put({ key: 'userRoleInstruction', value: String(fields.userRoleInstruction) }).catch(function () {});
-    } catch (e) {}
+      if (d.op === 'list') return reply(true, MHBroker.list());
+      if (d.op === 'read') return MHBroker.read(d.id).then(function (v) { reply(true, v); }, function () { reply(false); });
+      if (d.op === 'write') return MHBroker.write(d.id, d.value).then(function (v) { reply(!!v, v); }, function () { reply(false); });
+      if (d.op === 'addLore') { try { addLoreEntries(d.value || []); } catch (e) {} return reply(true); }
+      reply(false);
+    } catch (e) { reply(false); }
+  }
+  function setCharacter(fields) {   // retained as a thin shim over the broker for any legacy caller
+    try { if (!fields) return; ['name', 'roleInstruction', 'imagePromptTriggers', 'imagePromptPrefix', 'imagePromptSuffix'].forEach(function (k) { if (fields[k] != null) { var idm = { name: 'character.name', roleInstruction: 'character.description', imagePromptTriggers: 'character.imageTriggers', imagePromptPrefix: 'character.imagePrefix', imagePromptSuffix: 'character.imageSuffix' }; MHBroker.write(idm[k], String(fields[k])); } }); } catch (e) {}
+  }
+  function setUserChar(fields) {   // retained as a thin shim over the broker for any legacy caller
+    try { if (!fields) return; if (fields.userName != null) MHBroker.write('user.globalName', String(fields.userName)); if (fields.userRoleInstruction != null) MHBroker.write('user.globalDescription', String(fields.userRoleInstruction)); } catch (e) {}
   }
   /* a learning-harness entry point the fork's UI handlers call (regenerate -> down, pin -> up, etc.) */
   function signal(kind, toward) { try { rookLearn(kind === 'up' ? 1 : (kind === 'down' ? -1 : 0)); } catch (e) {} try { postToIframes({ __memheroBrain: 'feedback', kind: kind, toward: toward }); } catch (e) {} }
   function post(msg) { try { window.parent && window.parent.postMessage(msg, '*'); } catch (e) {} }
+  // bot/user surfaces — reads stay sync off the live oc mirror; writes go through the unified Broker.
   var botAPI = {
     name: function () { try { return charName(); } catch (e) { return ''; } },
     describe: function () { try { return (window.oc && oc.character && oc.character.roleInstruction) || ''; } catch (e) { return ''; } },
-    setName: function (n) { post({ __memheroBrain: 'char-set', fields: { name: String(n || '') } }); },
-    setDescription: function (t) { post({ __memheroBrain: 'char-set', fields: { roleInstruction: String(t || '') } }); },
+    setName: function (n) { return Broker.write('character.name', String(n || '')); },
+    setDescription: function (t) { return Broker.write('character.description', String(t || '')); },
     /* image gen: the per-character trigger text the portrait/background pipeline reads */
     imageTriggers: function () { try { return (window.oc && oc.character && oc.character.imagePromptTriggers) || ''; } catch (e) { return ''; } },
-    setImageTriggers: function (t) { post({ __memheroBrain: 'char-set', fields: { imagePromptTriggers: String(t || '') } }); }
+    setImageTriggers: function (t) { return Broker.write('character.imageTriggers', String(t || '')); }
   };
   var userAPI = {
     name: function () { try { return userName(); } catch (e) { return ''; } },
     describe: function () { try { return (window.oc && oc.thread && oc.thread.userCharacter && oc.thread.userCharacter.roleInstruction) || ''; } catch (e) { return ''; } },
-    setName: function (n) { post({ __memheroBrain: 'user-set', fields: { userName: String(n || '') } }); },
-    setDescription: function (t) { post({ __memheroBrain: 'user-set', fields: { userRoleInstruction: String(t || '') } }); }
+    setName: function (n) { return Broker.write('user.globalName', String(n || '')); },
+    setDescription: function (t) { return Broker.write('user.globalDescription', String(t || '')); }
   };
 
   /* ===================== the brain controls Memory & Lore (the Manager is the canonical store) ===================== */
@@ -47242,7 +47818,7 @@ Use this template for your response:
   function pushLore() {
     if (!load().writeLore) return;
     var cands = loreFromLearned().filter(function (t) { if (_lorePromoted[t]) return false; _lorePromoted[t] = 1; return true; });
-    if (cands.length) try { window.parent && window.parent.postMessage({ __memheroBrain: 'lore-add', entries: cands }, '*'); } catch (e) {}
+    if (cands.length) { try { Broker.addLore(cands); } catch (e) {} try { think('lore', 'filing to lore: ' + cands[0]); } catch (e) {} }   // unified Broker collection write (was the lore-add bridge op)
   }
   /* main-pane side: write entries into the active thread's lorebook (with embeddings) so the Manager shows them and retrieval surfaces them */
   function addLoreEntries(texts) {
@@ -47312,6 +47888,8 @@ Use this template for your response:
     var read = document.createElement('div'); read.id = 'memhero-brain-read'; read.className = 'memhero-brain-readout';
     body.appendChild(read);
 
+    // (the Thoughts feed now lives in the left sidebar as a full-height expander — see mountThoughtsSidebar)
+
     // --- ask the brain about itself (about()) ---
     var askRow = document.createElement('div'); askRow.className = 'memhero-brain-ask';
     var askIn = document.createElement('input'); askIn.type = 'text'; askIn.placeholder = 'ask the brain\u2026 (what are you?)'; askIn.className = 'memhero-brain-askin';
@@ -47327,6 +47905,14 @@ Use this template for your response:
     mgrBtn.addEventListener('click', function () { openManager(); });
     body.appendChild(mgrBtn);
 
+    // --- view / edit the sectioned rich profiles (user + character) ---
+    var profBtn = document.createElement('button'); profBtn.type = 'button'; profBtn.className = 'memhero-brain-mgr';
+    var _us = 0, _cs = 0; try { _us = richGet('user').length; _cs = richGet('char').length; } catch (e) {}
+    profBtn.textContent = '📋 Rich Profile' + ((_us + _cs) ? (' — ' + _us + ' user · ' + _cs + ' char sections') : ' (empty)');
+    profBtn.title = 'View / edit the sectioned user + character profiles the brain surfaces contextually each turn';
+    profBtn.addEventListener('click', function () { editProfiles(); });
+    body.appendChild(profBtn);
+
     // --- spontaneity dial ---
     var noiseRow = document.createElement('label'); noiseRow.className = 'memhero-brain-noise';
     var nlab = document.createElement('span'); nlab.textContent = 'spontaneity';
@@ -47340,9 +47926,56 @@ Use this template for your response:
     return wrap;
   }
   function mountInto(grid) { if (!grid || grid.querySelector('.memhero-brain-tile')) return; try { grid.appendChild(buildTile()); } catch (e) {} }
+  // ── Thoughts feed in the LEFT SIDEBAR: a collapsed expander sits between the chat list (#chatThreads)
+  //    and the app-option buttons (#appOptions). Opening it slides a full-height panel that COVERS the
+  //    whole sidebar with the live thought stream + a clear ✕ close. The existing hamburger still shows/
+  //    hides the entire sidebar exactly as before — the panel just rides inside it. ──
+  function mountThoughtsSidebar() {
+    try {
+      var col = document.getElementById('leftColumn'); if (!col) return false;
+      if (document.getElementById('memhero-thoughts-exp')) return true;   // idempotent
+      if (!col.style.position) col.style.position = 'relative';            // anchor the covering panel
+      var appOpts = document.getElementById('appOptions');
+      var row = document.createElement('button'); row.type = 'button'; row.id = 'memhero-thoughts-exp'; row.className = 'memhero-th-exp';
+      row.title = 'Watch the brain think — a live feed of what it’s noticing, learning, and steering';
+      row.innerHTML = '<span>💭 Thoughts</span><span class="memhero-th-chev">▸</span>';
+      var panel = document.createElement('div'); panel.id = 'memhero-thoughts-panel'; panel.className = 'memhero-th-panel'; panel.hidden = true;
+      var phead = document.createElement('div'); phead.className = 'memhero-th-phead';
+      var ptitle = document.createElement('span'); ptitle.className = 'memhero-th-ptitle';
+      ptitle.appendChild(document.createTextNode('💭 Thoughts '));
+      var busy = document.createElement('span'); busy.id = 'memhero-th-busy'; busy.className = 'memhero-th-busy'; busy.style.visibility = 'hidden'; ptitle.appendChild(busy);   // the animated processing indicator
+      var actions = document.createElement('span'); actions.className = 'memhero-th-actions';
+      var info = document.createElement('button'); info.type = 'button'; info.className = 'memhero-th-act'; info.innerHTML = 'ⓘ'; info.title = 'What is this feed?';
+      var cog = document.createElement('button'); cog.type = 'button'; cog.className = 'memhero-th-act'; cog.innerHTML = '⚙'; cog.title = 'Choose which thoughts to show';
+      var hideBtn = document.createElement('button'); hideBtn.type = 'button'; hideBtn.className = 'memhero-th-act'; hideBtn.innerHTML = '⮜'; hideBtn.title = 'Hide the sidebar (keeps Thoughts open)';
+      var closeBtn = document.createElement('button'); closeBtn.type = 'button'; closeBtn.className = 'memhero-th-act memhero-th-close'; closeBtn.innerHTML = '✕'; closeBtn.title = 'Back to the chat list';
+      actions.appendChild(info); actions.appendChild(cog); actions.appendChild(hideBtn); actions.appendChild(closeBtn);
+      phead.appendChild(ptitle); phead.appendChild(actions);
+      // ⓘ the LCARS "cognitive systems" console — a live blinking-lights status panel (visible by default)
+      var infoPanel = document.createElement('div'); infoPanel.className = 'memhero-th-info'; infoPanel.hidden = false;
+      try { infoPanel.appendChild(buildSystemsDash()); infoPanel.appendChild(buildCouncilDash()); infoPanel.appendChild(buildLobesDash()); infoPanel.appendChild(buildGovDash()); infoPanel.appendChild(buildMemDash()); var _cap = document.createElement('div'); _cap.className = 'mh-lcars-cap'; _cap.textContent = 'five layers, live — systems firing · who deliberated · inner-state lobes · governance · memory stores. hover any cell for what it is.'; infoPanel.appendChild(_cap); try { renderCouncilDash(); renderLobesDash(); renderGovDash(); renderMemDash(); } catch (e) {} } catch (e) {}
+      // ⚙ popdown: per-category show/hide toggles
+      var cogPanel = document.createElement('div'); cogPanel.className = 'memhero-th-cog'; cogPanel.hidden = true;
+      TH_CATS.forEach(function (c) { var lab = document.createElement('label'); lab.className = 'memhero-th-cogrow'; var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = thoughtCatOn(c[0]); cb.addEventListener('change', function () { setThoughtCat(c[0], cb.checked); }); lab.appendChild(cb); lab.appendChild(document.createTextNode(' ' + c[1])); cogPanel.appendChild(lab); });
+      var stream = document.createElement('div'); stream.id = 'memhero-brain-stream'; stream.className = 'memhero-th-stream';
+      _thoughtLog.forEach(function (th) { if (thoughtCatOn(th.tag)) appendThoughtRow(stream, th); });   // seed with recent (filtered) history; renderThought appends live thereafter
+      panel.appendChild(phead); panel.appendChild(infoPanel); panel.appendChild(cogPanel); panel.appendChild(stream);
+      function setOpen(o) { panel.hidden = !o; var ch = row.querySelector('.memhero-th-chev'); if (ch) ch.textContent = o ? '▾' : '▸'; row.classList.toggle('on', o); if (o) stream.scrollTop = stream.scrollHeight; }
+      row.addEventListener('click', function () { setOpen(panel.hidden); });
+      closeBtn.addEventListener('click', function () { setOpen(false); });
+      cog.addEventListener('click', function () { cogPanel.hidden = !cogPanel.hidden; });
+      info.addEventListener('click', function () { infoPanel.hidden = !infoPanel.hidden; });
+      hideBtn.addEventListener('click', function () { var c = document.getElementById('closeLeftColumnButton'); if (c) c.click(); });   // collapse the whole sidebar via the existing hamburger; the panel stays open underneath
+      if (appOpts && appOpts.parentElement === col) col.insertBefore(row, appOpts); else col.appendChild(row);
+      col.appendChild(panel);   // absolute, inset:0 -> covers the sidebar when shown
+      try { startBusyTicker(); } catch (e) {}
+      try { startSysAmbient(); } catch (e) {}
+      return true;
+    } catch (e) { return false; }
+  }
   function watchProfile() {
     try { var g = document.querySelector('.pf-overlay-sections-grid'); if (g) mountInto(g); } catch (e) {}
-    try { new MutationObserver(function () { var g = document.querySelector('.pf-overlay-sections-grid'); if (g) mountInto(g); }).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+    try { new MutationObserver(function () { var g = document.querySelector('.pf-overlay-sections-grid'); if (g) mountInto(g); try { mountThoughtsSidebar(); } catch (e) {} }).observe(document.body, { childList: true, subtree: true }); } catch (e) {}
   }
   function injectCSS() {
     if (document.getElementById('memhero-brain-css')) return;
@@ -47374,7 +48007,49 @@ Use this template for your response:
       + '.memhero-brain-mgr{display:block;width:100%;margin-top:12px;font-size:12px;padding:6px;border-radius:7px;border:1px solid var(--accent,#c9a227);background:rgba(201,162,39,.1);color:inherit;cursor:pointer}'
       + '.memhero-brain-mgr:hover{background:rgba(201,162,39,.2)}'
       + '.memhero-brain-noise{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;opacity:.85}'
-      + '.memhero-brain-noise input{flex:1}.memhero-brain-noiseval{min-width:30px;text-align:right;opacity:.7}';
+      + '.memhero-brain-noise input{flex:1}.memhero-brain-noiseval{min-width:30px;text-align:right;opacity:.7}'
+      + '.memhero-th-exp{display:flex;justify-content:space-between;align-items:center;width:100%;margin:.5rem 0 0;min-height:2rem;cursor:pointer;background:var(--button-bg,rgba(127,127,127,.1));border:1px solid rgba(127,127,127,.28);border-radius:var(--border-radius,6px);padding:0 .6rem;font:inherit;font-size:.85rem;color:inherit}'
+      + '.memhero-th-exp.on{border-color:var(--accent,#c9a227)}.memhero-th-exp .memhero-th-chev{opacity:.6}'
+      + '.memhero-th-panel{position:absolute;top:0;left:0;right:0;bottom:0;z-index:40;display:flex;flex-direction:column;background:var(--box-color,#1b1b1f);border-radius:6px}'
+      + '.memhero-th-phead{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:.5rem .55rem;border-bottom:1px solid rgba(127,127,127,.2);flex:none}'
+      + '.memhero-th-ptitle{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden}'
+      + '.memhero-th-busy{display:inline-block;min-width:16px;color:var(--accent,#c9a227);font-weight:700;letter-spacing:2px}'
+      + '.memhero-th-actions{display:flex;gap:4px;align-items:center;flex:none}'
+      + '.memhero-th-act{cursor:pointer;background:none;border:1px solid rgba(127,127,127,.32);border-radius:6px;padding:2px 7px;font:inherit;font-size:.85rem;line-height:1.3;color:inherit}.memhero-th-act:hover{border-color:var(--accent,#c9a227)}'
+      + '.memhero-th-cog{flex:none;padding:7px 9px;border-bottom:1px solid rgba(127,127,127,.2);display:flex;flex-direction:column;gap:4px;font-size:11px;background:rgba(127,127,127,.05)}'
+      + '.memhero-th-info{flex:none;padding:7px 8px;border-bottom:1px solid rgba(127,127,127,.2);background:rgba(0,0,0,.28)}'
+      + '.memhero-th-info .mh-lcars-cap{font-size:9px;opacity:.5;margin-top:5px;line-height:1.4;font-style:italic}'
+      + '.mh-lcars{background:#05070c;border-radius:9px;padding:6px 7px;border:1px solid rgba(255,153,0,.18)}'
+      + '.mh-lcars-head{display:flex;align-items:center;gap:5px;margin-bottom:6px}'
+      + '.mh-lcars-elbow{width:24px;height:13px;background:#ff9900;border-radius:7px 2px 2px 7px;flex:none}'
+      + '.mh-lcars-title{flex:1;font-size:9.5px;letter-spacing:.14em;color:#ffcc66;text-transform:uppercase;font-weight:700;white-space:nowrap;overflow:hidden}'
+      + '.mh-lcars-num{font-size:8px;letter-spacing:.1em;color:#cc99ff;opacity:.8}'
+      + '.mh-lcars-stat{width:8px;height:8px;border-radius:50%;background:#ff5e5e;box-shadow:0 0 6px #ff5e5e;animation:mhblink 1.2s steps(1,end) infinite;flex:none}'
+      + '.mh-lcars-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px}'
+      + '.mh-sys{display:flex;align-items:center;gap:5px;background:#15110a;border-radius:3px 10px 10px 3px;padding:2px 7px 2px 3px;opacity:.38;transition:opacity .35s,background .35s;overflow:hidden}'
+      + '.mh-sys-bar{width:5px;height:15px;border-radius:3px;background:var(--c);opacity:.55;flex:none;transition:opacity .3s}'
+      + '.mh-sys-dot{width:7px;height:7px;border-radius:50%;background:var(--c);opacity:.4;flex:none;transition:opacity .2s,box-shadow .2s}'
+      + '.mh-sys-lab{font-size:8px;letter-spacing:.07em;color:#d8c89a;text-transform:uppercase;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+      + '.mh-sys.flick{opacity:.62}.mh-sys.flick .mh-sys-dot{opacity:.8;box-shadow:0 0 5px var(--c)}'
+      + '.mh-sys.lit{opacity:1;background:#241a0c}.mh-sys.lit .mh-sys-bar{opacity:1}.mh-sys.lit .mh-sys-lab{color:#fff}'
+      + '.mh-sys.lit .mh-sys-dot{opacity:1;box-shadow:0 0 9px var(--c),0 0 2px #fff;animation:mhpulse .85s ease-out}'
+      + '@keyframes mhblink{50%{opacity:.18}}@keyframes mhpulse{0%{transform:scale(1.5)}100%{transform:scale(1)}}'
+      + '.memhero-th-info .mh-lcars+.mh-lcars{margin-top:6px}'
+      + '.mh-sys.on{opacity:1;background:#241a0c}.mh-sys.on .mh-sys-bar{opacity:1}.mh-sys.on .mh-sys-lab{color:#fff}.mh-sys.on .mh-sys-dot{opacity:1;box-shadow:0 0 7px var(--c)}'
+      + '.mh-lcars-rows{display:flex;flex-direction:column;gap:3px}'
+      + '.mh-lobe-row{border-radius:3px 10px 10px 3px}'
+      + '.mh-lobe-val{margin-left:auto;font-size:8.5px;color:#9adcc8;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52%;text-align:right}'
+      + '.mh-lcars-wait{grid-column:1/-1;font-size:9px;color:#7a8696;opacity:.7;padding:2px 3px;font-style:italic}'
+      + '.memhero-th-cogrow{display:flex;align-items:center;gap:6px;cursor:pointer;opacity:.9}.memhero-th-cogrow input{cursor:pointer}'
+      + '.memhero-th-stream{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:3px;font-size:11px;line-height:1.5}'
+      + '.memhero-th-stream:empty::before{content:"(quiet — no thoughts yet. send a chat message; if this stays after a reply, the brain isn’t wired to this chat)";opacity:.55;font-style:italic;font-size:10.5px}'
+      + '.mh-diff{flex-direction:column!important;gap:1px;width:100%;background:rgba(127,127,127,.06);border-radius:5px;padding:4px 6px;margin:1px 0}'
+      + '.mh-diff-field{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;opacity:.65;font-weight:700;margin-bottom:2px;color:var(--accent,#c9a227)}'
+      + '.mh-diff-del{color:#ff9a9a;background:rgba(255,90,90,.10);white-space:pre-wrap;word-break:break-word;border-radius:3px;padding:0 4px}'
+      + '.mh-diff-add{color:#9fe0c0;background:rgba(90,210,150,.12);white-space:pre-wrap;word-break:break-word;border-radius:3px;padding:0 4px}'
+      + '.mh-thought{display:flex;gap:7px;align-items:baseline}'
+      + '.mh-th-tag{flex:none;min-width:32px;font-size:8px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;text-align:right;opacity:.95}'
+      + '.mh-th-txt{opacity:.9;word-break:break-word}';
     var st = document.createElement('style'); st.id = 'memhero-brain-css'; st.textContent = css; document.head.appendChild(st);
   }
 
@@ -47385,6 +48060,8 @@ Use this template for your response:
     if (isMain) {
       try { injectCSS(); } catch (e) {}                   // main pane: mount the UI + keep iframes synced with the sliders
       try { watchProfile(); } catch (e) {}
+      try { mountThoughtsSidebar(); } catch (e) {}        // the live Thoughts feed lives in the left sidebar
+      (function wrapMPT(n) { try { var f = window.measurePromptTokens; if (typeof f === 'function' && !f.__thWrapped) { window.measurePromptTokens = function (x) { try { thoughtsBusy(); if (Date.now() - (window.__mptLast || 0) > 1500) { window.__mptLast = Date.now(); renderThought({ tag: 'flow', text: '→ handing my read to the model — it writes the words now' }); } } catch (e) {} return f(x); }; window.measurePromptTokens.__thWrapped = true; return; } } catch (e) {} if (n < 60) setTimeout(function () { wrapMPT(n + 1); }, 300); })(0);   // a reply being assembled -> animate the indicator + a guaranteed parent-side feed line (retries until the app's measurePromptTokens exists)
       try { window.__memheroBrainSignal = signal; } catch (e) {}   // UI handlers (regen/pin/fav) feed the brain through this
       setInterval(broadcast, 2000);                       // heartbeat so any freshly-built iframe converges on current settings
     } else {
@@ -47400,13 +48077,26 @@ Use this template for your response:
     wireOc: wireOc, read: function () { return _lastRead; }, perceive: function (m) { feedMessage(m); },
     learnedUser: function () { return { observations: _userObs.slice(), visual: _userVisual.slice() }; }, pushUserDesc: pushUserDesc, writeUserDesc: writeUserDesc,
     ask: askBrain, rook: rookCmd, rookLearn: rookLearn, rookMoment: rookMoment, applyPreset: applyPreset, presets: FRAME_PRESETS, readout: function () { return _read; },
-    openManager: openManager, lore: function (t) { try { window.parent && window.parent.postMessage({ __memheroBrain: 'lore-add', entries: [String(t || '')] }, '*'); } catch (e) {} }, addLoreEntries: addLoreEntries,
+    openManager: openManager, lore: function (t) { try { return Broker.addLore([String(t || '')]); } catch (e) {} }, addLoreEntries: addLoreEntries,
+    data: Broker,   // the unified read/write/update broker over EVERY editable surface (Broker.read/write/update/list/addLore)
     bot: botAPI, user: userAPI, signal: signal, setCharacter: setCharacter, setUserChar: setUserChar,
     recall: function () { return _recall; }, refreshRecall: refreshRecall, relevantEntry: relevantEntry, sendRecall: sendRecall,
     askAsync: askAsync, feeling: function () { return _mood; }, help: brainHelpHtml, forgetLearned: forgetLearned,
     imageKept: imageKept, imageDeleted: imageDeleted, imageStyles: imageStyles,
     stripLearnedBlock: stripLearned,   // editors call this to hide the brain's auto-injected learned block
-    forgetMatching: function (t) { var q = String(t || ''); pruneLearnedMatch(q); postToIframes({ __memheroBrain: 'forget-match', q: q }); }
+    forgetMatching: function (t) { var q = String(t || ''); pruneLearnedMatch(q); postToIframes({ __memheroBrain: 'forget-match', q: q }); },
+    // /profile : recompute the user profile NOW + actively manage the user-data fields going forward.
+    // on!==false -> turn management ON (sets the flag, ensures learning, forces an immediate recompute+write);
+    // on===false -> stop managing (passive learning continues). Returns the new managing state.
+    isManaging: function () { try { return !!load().manageProfile; } catch (e) { return false; } },
+    manageProfile: function (on) {
+      try { var s = load(); if (on === false) { s.manageProfile = false; save(s); return false; } s.manageProfile = true; s.learnUserDesc = true; save(s); postToIframes({ __memheroBrain: 'manage-now' }); return true; } catch (e) { return false; }
+    },
+    // ingest a big sectioned persona (e.g. a character bible) into the rich-profile surface (which: 'user'|'character')
+    importProfile: function (which, text) { try { return MHBroker.write((which === 'character' || which === 'char') ? 'character.profile' : 'user.profile', String(text || '')); } catch (e) { return Promise.resolve(false); } },
+    profileSections: function (which) { try { return richGet((which === 'character' || which === 'char') ? 'char' : 'user'); } catch (e) { return []; } },
+    profileText: function (which) { try { return richText((which === 'character' || which === 'char') ? 'char' : 'user'); } catch (e) { return ''; } },
+    editProfiles: editProfiles
   };
 })();
 
