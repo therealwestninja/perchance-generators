@@ -45754,22 +45754,9 @@ Use this template for your response:
     if (TEMP[a] && TEMP[b]) return fromC(toC(n, a), b);
     return null;
   }
-  function mkCalc(kind, value, formula) {
-    var words = numToWords(Math.round(value) === value ? value : tidy(value));
-    return { kind: kind, value: value, formula: formula, words: words, note: formula + (words && Math.round(value) === value ? ' (' + words + ')' : '') };
-  }
-  // recognise + work out a number request; null if there is nothing to compute
-  function calcLookup(text) {
-    var raw = String(text || ''); if (raw.length < 2 || raw.length > 200) return null;   // pre-check: bound the input so nothing huge ever reaches the parser
-    var t = raw.toLowerCase().replace(/\u00b0/g, ' ').replace(/,(\d{3})/g, '$1');
-    var pm = t.match(/(-?\d+(?:\.\d+)?)\s*%\s*of\s*(-?\d+(?:\.\d+)?)/);
-    if (pm) { var pa = safeNum(parseFloat(pm[1])), pb = safeNum(parseFloat(pm[2])); if (pa != null && pb != null) { var pv = safeNum(pa / 100 * pb); if (pv != null) return mkCalc('percent', pv, pm[1] + '% of ' + pm[2] + ' = ' + tidy(pv)); } return null; }
-    var cm = t.match(/(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+(?:into|in|to|as)\s+([a-z]+)/);
-    if (cm) { var cn = safeNum(parseFloat(cm[1])); if (cn != null) { var r = safeNum(convert(cn, cm[2], cm[3])); if (r != null) { var res = mkCalc('conversion', r, cm[1] + ' ' + canon(cm[2]) + ' = ' + tidy(r) + ' ' + canon(cm[3])); res.unit = canon(cm[3]); return res; } } return null; }
-    var am = t.match(/[-+*\/x^%().\d][-+*\/x^%().\d\s]*[-+*\/x^%().\d]/);
-    if (am) { var ex = am[0]; var hasOp = /[+*\/x^%]/.test(ex) || /\d\s*-\s*[\d(]/.test(ex); if (hasOp) { var v = evalExpr(ex); if (v != null) return mkCalc('arithmetic', v, ex.replace(/\s+/g, ' ').trim() + ' = ' + tidy(v)); } }
-    return null;
-  }
+  // (MATH UNIFIED) The duplicate calcLookup/mkCalc engine was retired \u2014 the `calc` contributor now delegates to the
+  //   single `secretaryCompute` engine (richer: percent/tip/split/arithmetic/units/time), so there is ONE math
+  //   implementation that can't drift. The shared convert/safeNum utilities stay (used by the secretary's SKILLS).
 
   // Opt-in faculties beyond the canonical seven (DESIGN-routing-layer.md). NOT part of "the seven nations" identity;
   // a roster includes them explicitly via `nations: NATIONS.concat(EXTRAS)`. The first real specialized deliberator
@@ -45913,7 +45900,7 @@ Use this template for your response:
     { id: 'calc', purpose: 'Work out a number when the line asks for one \u2014 arithmetic, a percentage, or a unit conversion.', kind: 'contributor',
       domain: ['calc'], fringe: ['reason'],
       relevance: function (v) { return clamp01(0.2 + v.engagement * 0.1); },
-      consult: function (ctx, vibe) { return calcLookup(ctx && (ctx.prompt || ctx.text) || ''); } }
+      consult: function (ctx, vibe) { var _r = secretaryCompute(ctx && (ctx.prompt || ctx.text) || ''); return (_r && _r.length) ? { lines: _r } : null; } }   // delegates to the ONE secretary math engine
   ];
 
   // Pure: read one reply through a nation's lean and return a score. Simple and inspectable on purpose.
@@ -46493,12 +46480,14 @@ Use this template for your response:
         decision.intent = win ? win.intent : null;
         if (opts.promote) applyPromotion(decision, opts.promote, proposals, vetoes, vibe, material);  // addressing overrides the VOTE, never the FLOOR
         decision.floor = proposals.map(function (p) { return { id: p.by, kind: p.intent.kind, strength: r2(p.intent.strength), persona: p.intent.persona && p.intent.persona.name || null }; });
-        state.lastRoom = live.map(function (m) { return m.self.id; }); state.lastWinner = decision.winnerId;   // P1: remember who won, to credit/penalize on the next reaction                    // for /nation self-report (pure observability)
+        state.lastWinner = decision.winnerId;   // P1: remember who won, to credit/penalize on the next reaction                    // for /nation self-report (pure observability)
         state.lastIntents = {}; proposals.forEach(function (p) { state.lastIntents[p.by] = { kind: p.intent.kind, strength: r2(p.intent.strength) }; });
         state.lastWinner = decision.winnerId || state.lastWinner || null;
         decision.vibe = vibe;                                // expose the read (debuggable; the router's input next turn)
-        decision.routing = routingTelemetry(vibe, live, selectContributors(vibe, forceIds).map(function (n) { return n.id; }));  // expose WHY the room formed (pure)
-        decision.routing.nominations = nom.resolutions;      // which domains were called in, resolved honestly (owned/referred/unknown)
+        if (typeof _watched !== 'undefined' && _watched) {   // routing telemetry is observability-only — compute it ONLY when an inspector/mirror is actually watching (was a per-turn roster sweep for no reader)
+          decision.routing = routingTelemetry(vibe, live, selectContributors(vibe, forceIds).map(function (n) { return n.id; }));  // expose WHY the room formed (pure)
+          decision.routing.nominations = nom.resolutions;      // which domains were called in, resolved honestly (owned/referred/unknown)
+        }
         if (hasMat) decision.material = material;            // expose what was consulted
         return decision;
       });
@@ -46647,7 +46636,7 @@ Use this template for your response:
       perceive: perceive, deliberateIntents: deliberateIntents, reactToSpoken: reactToSpoken, ingestReaction: ingestReaction, state: state };
   }
 
-  return { NATIONS: NATIONS, EXTRAS: EXTRAS, createArmy: createArmy, gauge: gauge, modulate: modulate, toneOf: toneOf, feelOf: feelOf, touchOf: touchLookup, MATERIALS: MATERIALS, TOUCH_DIMS: TOUCH_DIMS, sightOf: sightLookup, soundOf: soundLookup, smellOf: smellLookup, tasteOf: tasteLookup, feltOf: feltLookup, FELT_DIMS: FELT_DIMS, calcOf: calcLookup };
+  return { NATIONS: NATIONS, EXTRAS: EXTRAS, createArmy: createArmy, gauge: gauge, modulate: modulate, toneOf: toneOf, feelOf: feelOf, touchOf: touchLookup, MATERIALS: MATERIALS, TOUCH_DIMS: TOUCH_DIMS, sightOf: sightLookup, soundOf: soundLookup, smellOf: smellLookup, tasteOf: tasteLookup, feltOf: feltLookup, FELT_DIMS: FELT_DIMS };
 });
 
 !function(e){"use strict";var n=function(){function e(e,n,t,r){r=r||{},e=(e||[]).filter(function(e){return e&&null!=e.by});var o={};e=e.filter(function(e){return!o[e.by]&&(o[e.by]=!0,!0)}),n=n||[],t=t||[];var i=!!r.allowSelfVote,u=null!=r.vetoQuorum?r.vetoQuorum:1,s={},a={};function l(e){return(s[e]||0)>=u}t.forEach(function(e){e&&null!=e.against&&(s[e.against]=(s[e.against]||0)+1,(a[e.against]=a[e.against]||[]).push({by:e.by,reason:e.reason||""}))});var c=e.filter(function(e){return!l(e.by)}),f=!1;!c.length&&e.length&&(c=e.slice(),f=!0);var d={},v={};c.forEach(function(e){d[e.by]=0}),n.forEach(function(e){if(e&&e.scores){var n=null,t=-1/0;c.forEach(function(r){if(i||e.voter!==r.by){var o=Number(e.scores[r.by]);isFinite(o)&&(d[r.by]+=o,o>t&&(t=o,n=r.by))}}),null!=n&&(v[e.voter]=n)}});var p={},y={};c.forEach(function(e,n){p[e.by]=n,y[e.by]=Number(e.conf)||0});var b=c.slice().sort(function(e,n){return d[n.by]!==d[e.by]?d[n.by]-d[e.by]:y[n.by]!==y[e.by]?y[n.by]-y[e.by]:p[e.by]-p[n.by]}),m=b[0]||null,h=b[1]||null,_=m?d[m.by]-(h?d[h.by]:0):0,k=Object.keys(v).filter(function(e){return i||!m||e!==m.by}),g=!!m&&k.length>0&&k.every(function(e){return v[e]===m.by}),x=m?k.filter(function(e){return v[e]!==m.by}):[],w=m?f?"contested":g?"agreed":_<=(r.consensusMargin||0)?"tie-resolved":"carried":"no-proposals";return{winnerId:m?m.by:null,text:m?m.text:null,status:w,tally:d,margin:_,consensus:!!g,dissent:x,vetoed:Object.keys(s).filter(l),vetoReasons:a}}function n(e,n,t,r){return!n||n<=0?Promise.resolve(e).then(function(e){return{__timeout:!1,value:e}},function(){return{__timeout:!1,value:t}}):new Promise(function(o){var i=!1,u=r.set(function(){i||(i=!0,o({__timeout:!0,value:t}))},n);Promise.resolve(e).then(function(e){i||(i=!0,r.clear(u),o({__timeout:!1,value:e}))},function(){i||(i=!0,r.clear(u),o({__timeout:!1,value:t}))})})}return{createNervous:function(e){e=e||function(){};var n={},t={};function r(e,t){var r=n[e];return r&&(r.state=t),!!r}return{register:function(e){if(!e||!e.id)return null;var t=n[e.id]||{};return t.id=e.id+"",t.kind=e.kind||t.kind||"process",t.role=null!=e.role?e.role:t.role||"",t.does=Array.isArray(e.does)?e.does:t.does||[],t.state=e.state||t.state||"active","function"==typeof e.onSend&&(t._inbox=e.onSend),"function"==typeof e.onAsk&&(t._ask=e.onAsk),e.ready&&"function"==typeof e.ready.then&&(t.ready=e.ready,t.__ready=null,e.ready.then(function(e){t.__ready=!1!==e},function(){t.__ready=!1})),n[t.id]=t,t},list:function(){return Object.keys(n).map(function(e){var t=n[e];return{id:t.id,kind:t.kind,role:t.role,state:t.state}})},describe:function(e){var t=n[e];return t?{id:t.id,kind:t.kind,role:t.role,state:t.state,does:(t.does||[]).slice()}:null},find:function(e){return e=((e||"")+"").toLowerCase(),Object.keys(n).filter(function(t){return(n[t].does||[]).some(function(n){return((n.name||"")+"").toLowerCase()===e})})},setState:r,wake:function(e){return r(e,"active")},sleep:function(e){return r(e,"asleep")},standby:function(e){return r(e,"standby")},send:function(t,r){var o=n[t];if(o&&o._inbox)try{return o._inbox(r),!0}catch(n){e("[nervous] send->"+t+": "+(n&&n.message))}return!1},ask:function(e,t){var r=n[e];if(r&&r._ask)try{return Promise.resolve(r._ask(t))}catch(e){return Promise.reject(e)}return Promise.resolve(null)},publish:function(n,r){var o=0;return(t[n]||[]).slice().forEach(function(t){try{t(r),o++}catch(t){e("[nervous] "+n+" subscriber threw: "+(t&&t.message))}}),o},subscribe:function(e,n){return(t[e]=t[e]||[]).push(n),function(){t[e]=(t[e]||[]).filter(function(e){return e!==n})}},health:function(e){var t=n[e];return t?t.ready?!0===t.__ready?"ready":!1===t.__ready?"degraded":"pending":t.state:"absent"}}},resolve:e,member:function(e,n,t){return t=t||{},{id:e+"",role:n||"",propose:function(e){return Promise.resolve(t.propose?t.propose(e):null)},vote:function(e,n){return Promise.resolve(t.vote?t.vote(e,n):e&&Number(e.conf)||0)},veto:function(e,n){return Promise.resolve(t.veto?t.veto(e,n):{veto:!1})}}},createCouncil:function(t){var r=(t=t||{}).members||[],o=t.nervous||null,i=t.opts||{},u=t.timeoutMs||0,s=t.idleMs||0,a=t.log||function(){},l=t.now||function(){return Date.now()},c=t.sched||{set:function(e,n){return setTimeout(e,n)},clear:function(e){clearTimeout(e)}},f=null!=i.defaultScore?i.defaultScore:0,d={};function v(e){o&&o.register({id:e.id,kind:"brain",role:e.role,does:[{name:"propose",how:"ask(id,{type:'propose',ctx})"},{name:"vote",how:"ask(id,{type:'vote',proposal,ctx})"},{name:"veto",how:"ask(id,{type:'veto',proposal,ctx})"}],onAsk:function(n){return n?"propose"===n.type?e.propose(n.ctx):"vote"===n.type?e.vote(n.proposal,n.ctx):"veto"===n.type?e.veto(n.proposal,n.ctx):null:null}}),d[e.id]=l()}function p(){var e=[];return r.forEach(function(n){var t=o?o.health(n.id):"active",r=s&&l()-(d[n.id]||0)>s;"absent"===t&&v(n),("absent"===t||"asleep"===t||r)&&(o&&o.wake(n.id),d[n.id]=l(),e.push(n.id))}),e}function y(e,t,r,i,s,a){return a&&a[e.id]?Promise.resolve(s):n(o?Promise.resolve(o.ask(e.id,{type:t,proposal:r,ctx:i})):Promise.resolve("propose"===t?e.propose(i):"vote"===t?e.vote(r,i):e.veto(r,i)),u,s,c).then(function(n){return n.__timeout?(o&&o.sleep(e.id),a&&(a[e.id]=!0)):d[e.id]=l(),n.value})}return r.length%2==0&&a("[society] even membership ("+r.length+") — keep it odd so votes never split"),r.forEach(v),{deliberate:function(n,t){p();var o={};return Promise.all(r.map(function(e){return y(e,"propose",null,n,null,o).then(function(n){return{by:e.id,r:n}})})).then(function(u){var s=(t||[]).slice().concat(u.map(function(e){var n=e.r;return n&&null!=n.text?{by:e.by,text:n.text+"",conf:Number(n.conf)||0}:null}).filter(Boolean));if(!s.length)return{status:"no-proposals",text:null,winnerId:null,transcript:{proposals:[],ballots:[],vetoes:[]},participation:r.map(function(e){return e.id})};var a=[],l=[],c=r.map(function(e){var t={};return Promise.all(s.map(function(r){return y(e,"vote",r,n,f,o).then(function(e){t[r.by]="number"==typeof e&&isFinite(e)?e:f})})).then(function(){a.push({voter:e.id,scores:t})})}),d=r.map(function(e){return Promise.all(s.map(function(t){return y(e,"veto",t,n,{veto:!1},o).then(function(n){n&&n.veto&&l.push({by:e.id,against:t.by,reason:n.reason||""})})}))});return Promise.all(c.concat(d)).then(function(){var n=e(s,a,l,i);return n.transcript={proposals:s,ballots:a,vetoes:l},n.participation=a.map(function(e){return e.voter}),n})})},resolve:e,members:r,nervous:o,wakeStalled:p,size:r.length}},withTimeout:n}}();"undefined"!=typeof module&&module.exports&&(module.exports=n),e.ChloeBrain=n,e.ChloeCouncil=n}("undefined"!=typeof globalThis?globalThis:this);
@@ -47070,10 +47059,29 @@ Use this template for your response:
   var NEG = /\b(hate|angry|mad|stupid|awful|terrible|bad|wrong|annoying|shut up|ugh|sad|hurt|alone|scared|hopeless|worthless)\b/gi;
   function valence(t) { t = String(t || ''); var p = (t.match(POS) || []).length, n = (t.match(NEG) || []).length, d = p + n; return d ? (p - n) / d : 0; }
 
+  /* ---- CONSUME the contributor tier. consultContributors gathers almanac facts, calc figures, tactile/felt/sensory
+     notes onto decision.material — but decide() historically read only .intent.kind and DISCARDED .material, so a whole
+     10-faculty subsystem computed and was thrown away (and never lit the display). This surfaces it: a high-value steer
+     line (facts/figures ground the reply) + a per-contributor think() so the LCARS dots finally fire when they work. ---- */
+  function _surfaceMaterial(m) {
+    RK._materialLine = '';
+    try {
+      if (!m) return;
+      var bits = [];
+      if (m.almanac && m.almanac.fact) { bits.push('Ground it in fact — ' + m.almanac.fact); try { think('mem', 'almanac: ' + m.almanac.fact); } catch (e) {} }
+      if (m.calc && m.calc.lines && m.calc.lines.length) { try { think('cog', 'reckoning — ' + m.calc.lines.join('; ')); } catch (e) {} }   // VISIBILITY ONLY (lights PERCEIVE): calc now delegates to the secretary engine, which already injects the figures at P_GROUND — don't double-state the answer
+      if (m.touch && m.touch.note) { bits.push('How it would feel: ' + m.touch.note + '.'); try { think('mood', m.touch.note); } catch (e) {} }
+      if (m.felt && m.felt.note) { bits.push('The felt sense: ' + m.felt.note + '.'); try { think('mood', m.felt.note); } catch (e) {} }
+      var sens = []; ['sight', 'sound', 'smell', 'taste'].forEach(function (k) { if (m[k] && m[k].note) sens.push(m[k].note); });
+      if (sens.length) { bits.push('The scene: ' + sens.join('; ') + '.'); try { think('cog', 'senses — ' + sens.join('; ')); } catch (e) {} }
+      RK._materialLine = bits.join(' ');
+    } catch (e) {}
+  }
   /* ---- decide-only (state was already perceived): winning intent -> a brief ---- */
   function decide(promptText) {
     var a = army(); if (!a) return Promise.resolve('');
     return a.deliberateIntents({ prompt: String(promptText || ''), frame: load().frame || null }).then(function (dec) {
+      try { _surfaceMaterial(dec && dec.material); } catch (e) {}   // consume the contributor tier (was computed and discarded)
       return (dec && dec.intent) ? (INTENT_DIRECTIVE[dec.intent.kind] || '') : '';
     }).catch(function () { return ''; });
   }
@@ -47225,10 +47233,10 @@ Use this template for your response:
       var threat = (RK.sentinel && RK.sentinel.level && Date.now() - RK.sentinel.at < 60000) ? RK.sentinel.level : 0;
       var trust = (RK.bond && RK.bond.trust) || 0.5;
       var warm = ROOK_POS.test(String(t || '')) ? 0.1 : 0, neg = (ROOK_NEG.test(String(t || '')) && !ROOK_POS.test(String(t || ''))) ? 0.4 : 0;
-      s.energy = _nclamp(s.energy - (0.02 + 0.03 * Math.min(1, wc / 40) + 0.03 * threat) + 0.012);   // depletes with effort, slow passive recovery
+      s.energy = _nclamp(s.energy - (0.02 + 0.03 * Math.min(1, wc / 40) + 0.03 * threat) + 0.04 * ((RK.setpoint && RK.setpoint.energy != null ? RK.setpoint.energy : 0.72) - s.energy));   // depletes with effort; recovers TOWARD the drifting energy setpoint (homeostasis — matches the mood/calm return paths; was a hardcoded +0.012 that ignored sp.energy)
       s.arousal = _nclamp(s.arousal * 0.7 + 0.3 * (0.25 + 0.5 * err + 0.5 * threat));                 // rises with surprise + threat
       var cort = (RK.hormone && RK.hormone.cortisol) || 0, mela = (RK.hormone && RK.hormone.melatonin) || 0;   // slow endocrine modulation
-      s.tension = _nclamp(s.tension * 0.8 + 0.2 * (threat * 0.8 + neg) - warm + 0.1 * cort);           // stress load, eased by warmth, raised by chronic cortisol
+      s.tension = _nclamp(s.tension * 0.8 + 0.2 * (threat * 0.8 + neg) - warm + 0.1 * cort - 0.2 * Math.max(0, (n.ecb || 0.15) - 0.15));   // stress load, eased by warmth, raised by chronic cortisol — and eased by endocannabinoid tone (ecb above baseline; was written by doses but read by nothing)
       n.ne = _nclamp(0.22 + 0.6 * s.arousal + 0.3 * threat - 0.3 * mela);                              // noradrenaline ~ vigilance (night melatonin lowers it)
       n.ach = _nclamp(0.3 + 0.6 * s.energy - 0.35 * s.tension - 0.3 * cort - 0.25 * mela);             // acetylcholine ~ encoding (fogs when tired/tense/stressed/late)
       var sp = RK.setpoint || { mood: 0.5, calm: 0.75, energy: 0.72 };
@@ -48422,7 +48430,7 @@ Use this template for your response:
       var cort = h.cortisol || 0, sleepP = (RK.sleep && RK.sleep.pressure) || 0, resting = !!(RK.sleep && RK.sleep.phase && RK.sleep.phase !== 'awake');
       var ate = _EAT_RX.test(s) || ((RK.dosed || []).some(function (d) { return d.drug === 'sugar'; }));
       // METABOLISM
-      M.glucose = _nclamp(M.glucose - 0.03 + (ate ? 0.4 : 0)); M.ghrelin = _nclamp(M.ghrelin + 0.04 - (ate ? 0.5 : 0)); M.leptin = _nclamp(M.leptin * 0.97 + (ate ? 0.3 : 0));
+      M.glucose = _nclamp(M.glucose - 0.03 + (ate ? 0.4 : 0)); M.ghrelin = _nclamp(M.ghrelin + 0.04 - (ate ? 0.5 : 0) - 0.04 * (M.leptin || 0)); M.leptin = _nclamp(M.leptin * 0.97 + (ate ? 0.3 : 0));   // leptin (satiety) now SLOWS ghrelin growth — was computed every turn but read by nothing
       if (M.ghrelin > 0.6 || M.glucose < 0.3) { so.energy = _nclamp(so.energy - 0.03); n.sero = _nclamp((n.sero == null ? 0.6 : n.sero) - 0.02); }   // hangry: drained + frayed patience
       // HPA AXIS → BURNOUT
       HPA.chronic = _nclamp(HPA.chronic + (cort > 0.5 ? 0.02 : 0) - (resting ? 0.04 : 0.005));
@@ -48483,7 +48491,7 @@ Use this template for your response:
       sl.pressure = _nclamp(sl.pressure + 0.03 + 0.02 * (1 - s.energy));    // adenosine — the drive to sleep
       h.cortisol = _nclamp(h.cortisol * 0.97 + 0.06 * s.tension);           // chronic-stress axis: leaky integral of tension
       h.melatonin = _nclamp(melatoninFromClock());                          // the real clock reaches inside
-      sl.phase = (sl.pressure > 0.85 || h.melatonin > 0.72) ? 'drowsy' : 'awake';
+      sl.phase = (sl.pressure > 0.85 || h.melatonin > 0.72 || (h.orexin != null && h.orexin < 0.28)) ? 'drowsy' : 'awake';   // low orexin → can't hold wakefulness, drifts drowsy (orexin was written each turn but read by nothing)
       if (sl.phase === 'drowsy') try { think('mood', 'getting drowsy — I could use a little rest'); } catch (e) {}
       rookSave();
     } catch (e) {}
@@ -48523,7 +48531,7 @@ Use this template for your response:
       _reflectBusy = true; setTimeout(function () { _reflectBusy = false; }, 30000);   // safety: never wedge on a hung call
       var instr = 'These are recent moments between you and the person you’re talking with:\n- ' + recent.join('\n- ') + '\n\nIn ONE concise sentence, state a durable insight about THEM or your relationship that these moments reveal. No preamble, no quotes — just the insight.';
       _askLLM(instr).then(function (out) {
-        try { var ins = String(out || '').replace(/\s+/g, ' ').trim().slice(0, 160); if (ins.length > 8) { var D = RK.dreams || (RK.dreams = []); D.push('a reflection that surfaced: ' + ins); if (D.length > 12) RK.dreams = D.slice(-12); R.at = Date.now(); R.count = mm.length; try { think('flow', 'a quiet reflection settled — ' + ins.slice(0, 50)); } catch (e) {} rookSave(); } } catch (e) {}
+        try { var ins = String(out || '').replace(/\s+/g, ' ').trim().slice(0, 160); if (ins.length > 8) { var D = RK.dreams || (RK.dreams = []); D.push('a reflection that surfaced: ' + ins); if (D.length > 12) RK.dreams = D.slice(-12); R.at = Date.now(); R.count = mm.length; try { scratchNote('on reflection: ' + ins.slice(0, 60)); } catch (e) {} try { think('flow', 'a quiet reflection settled — ' + ins.slice(0, 50)); } catch (e) {} rookSave(); } } catch (e) {}
         _reflectBusy = false;
       }, function () { R.at = Date.now(); _reflectBusy = false; });   // on reject: back off (so it doesn't hammer) + clear busy
     } catch (e) { _reflectBusy = false; }
@@ -48773,7 +48781,7 @@ Use this template for your response:
   //    that somehow drifted to NaN / ∞ / out-of-range (a corrupted load, a future unguarded path), cap any
   //    runaway array, and un-stick a dysregulation that has been jammed open too long. Cheap; runs once when the
   //    brain arms and every ~30th heartbeat. Only touches fields KNOWN to be 0..1 — never timestamps/counters. ──
-  var _SANE01 = [['neuro', ['da', 'sero', 'ne', 'ach', 'glu', 'gaba', 'ecb']], ['soma', ['energy', 'arousal', 'tension']], ['hormone', ['cortisol', 'melatonin', 'oxytocin', 'endorphin', 'vasopressin', 'adrenaline', 'orexin', 'thyroid']], ['metab', ['glucose', 'ghrelin', 'leptin']], ['hpa', ['burnout', 'chronic']], ['immune', ['inflammation']], ['attach', ['anx', 'avoid']], ['sleep', ['pressure']], ['bbb', ['integrity']], ['self', ['regard', 'coherence', 'agency']], ['dysreg', ['intensity']], ['rumination', ['level']], ['shame', ['level']], ['pain', ['level']], ['bond', ['trust']]];
+  var _SANE01 = [['neuro', ['da', 'sero', 'ne', 'ach', 'glu', 'gaba', 'ecb']], ['soma', ['energy', 'arousal', 'tension']], ['hormone', ['cortisol', 'melatonin', 'oxytocin', 'endorphin', 'vasopressin', 'adrenaline', 'orexin']], ['metab', ['glucose', 'ghrelin', 'leptin']], ['hpa', ['burnout', 'chronic']], ['immune', ['inflammation']], ['attach', ['anx', 'avoid']], ['sleep', ['pressure']], ['bbb', ['integrity']], ['self', ['regard', 'coherence', 'agency']], ['dysreg', ['intensity']], ['rumination', ['level']], ['shame', ['level']], ['pain', ['level']], ['bond', ['trust']]];
   var _SANEARR = [['schedule', 40], ['marks', 60], ['dosed', 8], ['hear', 12]];
   var _saneBeat = 0;
   var _steerHist = [], _stuckFlagged = false;
@@ -48968,7 +48976,9 @@ Use this template for your response:
     var t = String(userText || '').toLowerCase(); if (!_openLoops.length || !LOOP_CLOSE.test(t)) return;
     _openLoops = _openLoops.filter(function (lp) {
       var lw = (lp.key.match(/[a-z']{4,}/g) || []);
-      return !lw.some(function (w) { return t.indexOf(w) >= 0; });   // closure cue + topic overlap -> resolved, drop it
+      var resolved = lw.some(function (w) { return t.indexOf(w) >= 0; });   // closure cue + topic overlap -> resolved
+      if (resolved) try { scratchResolve('loop', lp.key); } catch (e) {}   // SCRATCHPAD MANAGEMENT: a loop closed → the brain prunes the note it was holding about it
+      return !resolved;
     });
   }
   function followUpLine() {
@@ -49080,6 +49090,65 @@ Use this template for your response:
   // NARS ⟨frequency,confidence⟩ beliefs about the user: assert only as hard as the evidence warrants; harden with repetition.
   function noteBelief(key, fObs) { try { key = String(key || '').toLowerCase().slice(0, 60); if (!key) return; var B = RK.beliefs || (RK.beliefs = {}); var b = B[key]; var c2 = 0.5; if (!b) { B[key] = { f: fObs, c: 0.33, at: Date.now() }; } else { var bc = b.c >= 0.999 ? 0.999 : (b.c <= 0.001 ? 0.001 : b.c), wOld = bc / (1 - bc), wNew = c2 / (1 - c2); b.f = (wOld * b.f + wNew * fObs) / (wOld + wNew); b.c = Math.min(0.999, (wOld + wNew) / (wOld + wNew + 1)); b.at = Date.now(); } var ks = Object.keys(B); if (ks.length > 40) { var lo = ks[0]; for (var _e = 1; _e < ks.length; _e++) { if (((B[ks[_e]] && B[ks[_e]].c) || 0) < ((B[lo] && B[lo].c) || 0)) lo = ks[_e]; } delete B[lo]; } } catch (e) {} }   // DEFENSIVE: clamp c<1 (a corrupted persisted c≥1 would NaN via 1/(1-c)); evict lowest-confidence, not first-inserted
   function beliefSteer(userText) { try { var B = RK.beliefs || {}, qs = {}, qt = _toks(userText); if (!qt.length) return ''; for (var i = 0; i < qt.length; i++) qs[qt[i]] = 1; var best = null, bn = 0, bk = ''; for (var k in B) { var kt = _toks(k), n = 0; for (var j = 0; j < kt.length; j++) if (qs[kt[j]]) n++; if (n >= 2 && n > bn) { bn = n; best = B[k]; bk = k; } } if (!best) return ''; if (best.c >= 0.7) return 'you know this about them: ' + bk; if (best.c >= 0.4) return 'as you understand them, ' + bk + ' — still forming the picture'; return 'a tentative read: ' + bk + ' — hold it lightly, check rather than assume'; } catch (e) { return ''; } }
+  // SCRATCHPAD (the brain's running train-of-thought): a small ring-buffer of salient notes it keeps to itself across
+  //   turns, so understanding COMPOUNDS instead of being re-derived each reply. Surfaces as ONE light, continuous,
+  //   natural-language steer — a gentler alternative to a heavy per-turn analytical dump (and far less leak-prone).
+  function _scratchSim(a, b) { try { var ta = _toks(a), tb = _toks(b), sa = {}, n = 0, i; for (i = 0; i < ta.length; i++) sa[ta[i]] = 1; for (i = 0; i < tb.length; i++) if (sa[tb[i]]) n++; var u = ta.length + tb.length - n; return u > 0 ? n / u : 0; } catch (e) { return 0; } }
+  function _scratchScore(n, now) { return (n.w == null ? 0.5 : n.w) * Math.pow(0.97, (now - (n.at || now)) / 60000); }   // a note's live value = importance decayed by age (minutes)
+  function scratchNote(text, w, kind) {   // MANAGE, don't just append: UPDATE a similar note in place; EVICT the lowest-VALUE note (not the oldest)
+    try {
+      text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 90); if (text.length < 6) return;
+      w = (typeof w === 'number') ? w : 0.5; kind = kind || '';
+      var S = RK.scratch || (RK.scratch = { notes: [] }), now = Date.now(), i;
+      for (i = 0; i < S.notes.length; i++) { if (_scratchSim(S.notes[i].t, text) >= 0.5) { S.notes[i].t = text; S.notes[i].w = Math.min(1, Math.max(S.notes[i].w == null ? 0.5 : S.notes[i].w, w) + 0.05); S.notes[i].at = now; if (kind) S.notes[i].kind = kind; return; } }   // UPDATE-in-place (mem0 UPDATE): a near-duplicate REVISES the existing note + bumps its weight — no pile-up
+      S.notes.push({ t: text, at: now, w: w, kind: kind });
+      if (S.notes.length > 6) { var lo = 0; for (i = 1; i < S.notes.length; i++) if (_scratchScore(S.notes[i], now) < _scratchScore(S.notes[lo], now)) lo = i; S.notes.splice(lo, 1); }   // EVICT lowest weight×recency
+    } catch (e) {}
+  }
+  function scratchResolve(kind, ref) {   // PRUNE: the brain actively drops notes whose subject is now addressed/resolved (e.g. a closed loop)
+    try { var S = RK.scratch; if (!S || !S.notes) return; var rw = (String(ref || '').toLowerCase().match(/[a-z']{4,}/g) || []); S.notes = S.notes.filter(function (n) { if (kind && n.kind !== kind) return true; if (!rw.length) return n.kind !== kind; var nt = n.t.toLowerCase(); return !rw.some(function (x) { return nt.indexOf(x) >= 0; }); }); } catch (e) {}
+  }
+  // CLARION bottom-up rule-extraction: when a fast GUT read keeps earning reward, crystallise it into an explicit,
+  //   trusted rule — knowledge moving from the implicit affect channel into the deliberate one.
+  function creditGist(label, val) {
+    try { label = String(label || '').slice(0, 40); if (!label) return; var sgn = val > 0.1 ? 1 : (val < -0.1 ? -1 : 0); if (!sgn) return; var G = RK.gist || (RK.gist = {}), g = G[label] || (G[label] = { up: 0, down: 0 }); if (sgn > 0) g.up++; else g.down++; g.crys = (g.up >= 4 && g.up / (g.up + g.down) >= 0.7); } catch (e) {}
+  }
+  function gistSteer() {
+    try { var lab = (RK.intuit && Math.abs(RK.intuit.pull || 0) > 0.3 && Date.now() - (RK.intuit.at || 0) < 60000) ? RK.intuit.label : ''; if (!lab) return ''; var g = RK.gist && RK.gist[lab]; return (g && g.crys) ? ('You’ve learned this gut read (“' + lab + '”) tends to land for you — trust it a little more than usual, lean into it.') : ''; } catch (e) { return ''; }
+  }
+  function turnSignificance() {   // LIGHTER TOUCH: how charged/significant is this turn? ordinary → light steer; charged → full read
+    try {
+      var d = affectDims(), s = d.threat || 0;
+      if (RK.salience && Date.now() - (RK.salience.at || 0) < 30000) s = Math.max(s, RK.salience.level || 0);   // a salient shift
+      if (RK.occ) s = Math.max(s, RK.occ.intensity || 0);                                                       // a goal moved
+      s = Math.max(s, Math.abs((d.valence == null ? 0.5 : d.valence) - 0.5) * 1.6);                              // strong emotion either way
+      s = Math.max(s, (RK.soma && RK.soma.tension) || 0);                                                        // tension
+      if ((d.arousal || 0) > 0.66) s = Math.max(s, d.arousal);                                                   // high arousal
+      return _nclamp(s);
+    } catch (e) { return 0.5; }
+  }
+  function scratchSteer() {   // SURFACE the highest-value notes (prioritised, not just recent); prune stale first
+    try {
+      var S = RK.scratch; if (!S || !S.notes || !S.notes.length) return '';
+      var now = Date.now(); S.notes = S.notes.filter(function (n) { return now - (n.at || 0) < 1200000; });   // prune stale (>20 min) so the pad reflects the CURRENT arc
+      if (!S.notes.length) return '';
+      var top = S.notes.slice().sort(function (a, b) { return _scratchScore(b, now) - _scratchScore(a, now); }).slice(0, 4).map(function (n) { return n.t; });
+      return 'Your running train of thought (carried across turns, a continuous sense — not a fresh analysis): ' + top.join(' · ') + '.';
+    } catch (e) { return ''; }
+  }
+  // SELF-CRITIQUE → NEXT-TURN CORRECTION (Sprint 8, deterministic Self-Refine, no LLM call, no jarring re-render):
+  //   read its OWN last reply; if it leaked code/system-output UNPROMPTED or asked them to "run commands to prove it",
+  //   flag it so critiqueSteer pulls the NEXT reply hard back into character. Guarded so it never suppresses real code help.
+  function selfCritique(reply) {
+    try {
+      var s = String(reply || ''), u = String(_lastUserText || ''), flags = [];
+      var asked = /\b(code|coding|function|script|write|program|debug|regex|command|terminal|bash|python|javascript|sql|how (do|to)|fix this|snippet)\b/i.test(u);   // don't critique CODE when they asked for code
+      if (!asked && /```|response_matrix|\bps\s+-aux\b|\bsudo\b|console\.log|[a-z_]+\s*=\s*["'][a-z_ ]+["'];|\bif\s*\(\s*(user_input|input)\b/i.test(s)) flags.push('rendered its inner state as code/system output (unprompted)');
+      if (/\bprove\b[^.!?]*\bbot\b|run (this|these|the following|a) commands?\b/i.test(s)) flags.push('asked them to run commands to "prove" itself');
+      if (flags.length) RK.critique = { reason: flags.join('; '), at: Date.now() };
+    } catch (e) {}
+  }
+  function critiqueSteer() { try { var c = RK.critique; if (!c || Date.now() - (c.at || 0) > 120000) return ''; RK.critique = null; return 'Self-correction — your last reply slipped: it ' + c.reason + '. THIS reply: stay fully in character, speak in natural language only, no code/pseudo-code/system-text and no fourth-wall — unless they explicitly asked you for code.'; } catch (e) { return ''; } }
   // USER-MODEL (Sprint 8, deterministic contextual-bandit-lite): learn which reply SHAPES this person responds well to.
   //   Reward = their next message's valence (denser than rare thumbs). Steers softly toward what has landed.
   function _replyAttrs(text) { var s = String(text || ''), w = (s.match(/\b[\w']+\b/g) || []).length; return { len: w < 25 ? 'short' : w > 70 ? 'long' : 'med', q: /\?/.test(s) ? 'asks' : 'noask', tone: /(\bha\b|haha|lol|;\)|:\)|\bteas|playful|\bwink)/i.test(s) ? 'playful' : 'plain' }; }
@@ -49123,6 +49192,8 @@ Use this template for your response:
     think('cog', ambientThought());   // a heartbeat of cognition — vocab varies with the brain's current state
     try { bondSnapshot(); if (ROOK_POS.test(t)) bondNudge(0.01); else if (ROOK_VENT.test(t)) bondNudge(0.02); } catch (e) {}   // trust eases up on warmth + shared vulnerability
     try { _idfBump(_toks(t)); } catch (e) {}   // MEMORY: accrue corpus doc-frequency so recall relevance can IDF-weight rare shared tokens
+    try { var _jot = '', _jw = 0.5, _jk = ''; if (RK.salience && (RK.salience.level || 0) > 0.4 && Date.now() - (RK.salience.at || 0) < 30000 && RK.salience.reason) { _jot = 'noticed ' + RK.salience.reason; _jw = RK.salience.level; _jk = 'salience'; } else if (RK.occ && (RK.occ.intensity || 0) > 0.3) { _jot = 'felt ' + (RK.occ.emotion || 'something') + ' as ' + (RK.occ.need || 'a goal') + ' ' + (RK.occ.dir > 0 ? 'lifted' : 'slipped'); _jw = RK.occ.intensity; _jk = 'occ'; } else if (typeof _profileHit !== 'undefined' && _profileHit) { _jot = 'holding in mind: ' + _profileHit; _jw = 0.7; _jk = 'profile'; } else if (typeof _loopHit !== 'undefined' && _loopHit) { _jot = 'they’re waiting on: ' + _loopHit; _jw = 0.8; _jk = 'loop'; } if (_jot) scratchNote(_jot, _jw, _jk); } catch (e) {}   // SCRATCHPAD: jot the turn's single most salient note (weighted by its strength + tagged by kind, so it can be managed/pruned)
+    try { if (RK.intuit && Math.abs(RK.intuit.pull || 0) > 0.3 && Date.now() - (RK.intuit.at || 0) < 60000) RK.lastGut = RK.intuit.label; } catch (e) {}   // CLARION: remember the active gut read, to credit it on the next reaction
     try { var _dpMix = metaArbitrate(t);   // DUAL-PROCESS ARBITRATION (CLARION): high stakes/uncertainty force deliberation; low-stakes time-pressure trusts the gut
       if (_dpMix > 0.7) addBit('high stakes or real uncertainty here — slow down: weigh it before you commit, reason it through rather than going with the first read', P_META, 'slow');
       else if (_dpMix < 0.32) addBit('low-stakes and quick — trust your gut here, don’t over-deliberate', P_MID, 'gut');
@@ -49148,7 +49219,7 @@ Use this template for your response:
     try { var fu = followUpLine(); if (fu) addBit(fu, P_CORE); } catch (e) {}                          // circle back to something they're waiting on
     try { var nl = neuroLine(); if (nl) addBit(nl, P_MID); } catch (e) {}                              // neuromodulatory tone modulates how it responds (energy/patience/vigilance/initiative)
     try { var _em = emotionNow(); var es = emotionSteer(_em); if (es) addBit(es, P_CORE); if (_em && _em !== _lastEmotion) { _lastEmotion = _em; think('mood', emotionPhrase(_em)); } } catch (e) {}   // FELT CORE: the felt emotion colors the reply + surfaces as a thought when it shifts
-    try { var _vt = decideStance(t); RK.volition = { stance: _vt.stance, ask: _vt.ask, at: Date.now() }; var vs = stanceSteer(_vt.stance); if (vs) addBit(vs, P_CORE, (/refuse|decline/.test(_vt.stance) ? 'refuse' : '')); if (_vt.stance !== 'open' && _vt.stance !== _lastStance) { _lastStance = _vt.stance; think('cog', 'stance — ' + stancePhrase(_vt.stance) + (_vt.why ? ' (' + _vt.why + ')' : '')); } } catch (e) {}   // VOLITION: an owned yes / maybe / no / idk / refuse toward what they asked
+    try { var _vt = decideStance(t); RK.volition = { stance: _vt.stance, at: Date.now() }; var vs = stanceSteer(_vt.stance); if (vs) addBit(vs, P_CORE, (/refuse|decline/.test(_vt.stance) ? 'refuse' : '')); if (_vt.stance !== 'open' && _vt.stance !== _lastStance) { _lastStance = _vt.stance; think('cog', 'stance — ' + stancePhrase(_vt.stance) + (_vt.why ? ' (' + _vt.why + ')' : '')); } } catch (e) {}   // VOLITION: an owned yes / maybe / no / idk / refuse toward what they asked
     try { var _in = inhibitionState(); RK.inhibition = { urge: _in.urge, held: _in.held, at: Date.now() }; var ins = inhibitionSteer(_in); if (ins) addBit(ins, P_CORE); if (_in.urge && !_in.held) think('flow', 'catching an urge to ' + _in.urge + ' — brake’s low'); } catch (e) {}   // IMPULSE-CONTROL: GABA/glutamate brake vs accelerator — hold the first impulse, or flag that it might slip
     try { var hs = habitSteer(); if (hs) addBit(hs, P_MID); } catch (e) {}   // HABITUATION/SENSITIZATION: restless when samey, hair-trigger when repeatedly needled
     try { var _rh = rehearse(t); if (_rh) { RK.tom = { feels: _rh.tom.feels, wants: _rh.tom.wants, at: Date.now() }; var tms = tomSteer(_rh.tom); if (tms) addBit(tms, P_CORE); var rhs = rehearseSteer(_rh); if (rhs) { addBit(rhs, P_CORE); think('cog', 'second thought — first instinct was to ' + _rh.first + ', but better to ' + _rh.revised); } } } catch (e) {}   // THEORY OF MIND models them; REHEARSAL pre-plays the first instinct, predicts how it lands, revises if it would misfire
@@ -49183,6 +49254,7 @@ Use this template for your response:
     try { var inss = insightSteer(); if (inss) addBit(inss, P_CORE); } catch (e) {}   // INSIGHT: a worry that just resolved — CORE (it reframes the whole reply, lighter)
     try { var rfs = reframeSteer(); if (rfs) addBit(rfs, P_MID); } catch (e) {}   // REAPPRAISAL: a sustained dark read — offer a truer, kinder frame
     try { var ints = intuitSteer(); if (ints) addBit(ints, P_MID, 'gut'); } catch (e) {}   // INTUITION: the fast gut read (tagged 'gut' so a 'slow' deliberation directive can suppress it)
+    try { var gst = gistSteer(); if (gst) addBit(gst, P_MID, 'gut'); } catch (e) {}   // CLARION: a gut read the brain has LEARNED to trust (crystallised from repeated reward) — lean in
     try { var rsl = resolSteer(); if (rsl) addBit(rsl.t, P_MID, rsl.g); } catch (e) {}   // PSI arousal→resolution (reply depth) — tagged terse/spacious for conflict resolution
     try { var cps = copeSteer(); if (cps) addBit(cps, P_CORE); } catch (e) {}    // EMA controllability→coping mode
     try { var occ = occSteer(); if (occ) addBit(occ, P_CORE); } catch (e) {}   // OCC APPRAISAL: goal-grounded emotion (a need advanced/slipped) — fires only on a meaningful goal move
@@ -49190,6 +49262,8 @@ Use this template for your response:
     try { var lsn = lessonSteer(t); if (lsn) addBit(lsn, P_CORE); } catch (e) {}   // Reflexion: a learned lesson for a recurring situation
     try { var bel = beliefSteer(t); if (bel) addBit(bel, P_CORE); } catch (e) {}   // NARS: a calibrated belief about the user — hedge or assert it by earned confidence
     try { var ums = userModelSteer(); if (ums) addBit(ums, P_MID); } catch (e) {}   // USER-MODEL: a learned preference for reply shape (what THIS person responds well to)
+    try { var crq = critiqueSteer(); if (crq) addBit(crq, P_GUARD); } catch (e) {}   // SELF-CRITIQUE: after a detected slip (unprompted code-leak / fourth-wall), pull THIS reply hard back into character
+    try { var scr = scratchSteer(); if (scr) addBit(scr, P_CORE); } catch (e) {}   // SCRATCHPAD: the running train-of-thought at CORE so it survives the lighter cap — the continuity anchor when heavy bits are trimmed
     try { var ass = assocSteer(); if (ass) addBit(ass, P_MID); } catch (e) {}   // ASSOCIATIVE RECALL: a past mark the present moment echoes
     try { var cus = curioSteer(t); if (cus) { addBit(cus, P_MID); if (RK.neuro) RK.neuro.da = _nclamp(RK.neuro.da + 0.04); } } catch (e) {}   // CURIOSITY: bring its own question — and SEEKING is dopaminergic, so live curiosity lifts da
     try { var dbs = doubtSteer(t); if (dbs) addBit(dbs, P_MID); } catch (e) {}   // DOUBT: question a sweeping/too-certain claim
@@ -49219,7 +49293,8 @@ Use this template for your response:
     // GWT IGNITION: when a genuine override-state bit (ACUTE band, beneath the SELF wrapper) is present, mark it so it dominates the broadcast
     //   rather than reading as one of twelve equal clauses. Fresh/neutral turns have no ACUTE bit → no ignition → behaviour unchanged.
     try { for (var _ig = 0; _ig < _abits.length; _ig++) { if (_abits[_ig].p >= P_ACUTE && _abits[_ig].p < P_SELF) { _abits[_ig] = { t: 'THIS dominates right now — ' + _abits[_ig].t, p: _abits[_ig].p, q: _abits[_ig].q, g: _abits[_ig].g }; break; } } } catch (e) {}
-    var bits = []; for (var _bi = 0; _bi < _abits.length && _bi < 12; _bi++) bits.push(_abits[_bi].t);   // cap to 12 AFTER prioritising — self/acute/grounded survive, ambient drops first (Feature-4 budget still bounds total length)
+    var _sig = turnSignificance(), _cap = Math.max(6, Math.min(12, Math.round(6 + _sig * 7)));   // LIGHTER TOUCH: ordinary turn → ~6 bits (scratchpad + essentials carry the through-line); a charged turn opens up to the full 12
+    var bits = []; for (var _bi = 0; _bi < _abits.length && _bi < _cap; _bi++) bits.push(_abits[_bi].t);   // dynamic cap by turn significance — self/acute/grounded always survive, ambient/analytical drops first on calm turns
     if (!_evalQuiet) { try { _lastSteer = { at: Date.now(), input: String(t).slice(0, 80), fired: _preResolve.length, kept: bits.length, capped: Math.max(0, _abits.length - 12), bits: _abits.slice(0, 12).map(function (b) { return { p: b.p, g: b.g, t: b.t.slice(0, 90) }; }), dropped: _preResolve.filter(function (pb) { return !_abits.some(function (ab) { return ab.t === pb.t; }); }).map(function (pb) { return { g: pb.g, t: pb.t.slice(0, 60) }; }) }; } catch (e) {} }   // INSPECTOR: read-only snapshot of the live steer (never persisted), surfaced by /brain rook steer
     if (!_evalQuiet) { try { _steerHist.push(bits.join('|')); if (_steerHist.length > 6) _steerHist.shift(); } catch (e) {} }   // autoRepair: track the steer signature to detect a stuck rut
     return bits.length ? ('Inner read (shapes HOW you respond — never state or expose it; speak in character and DON’T break the fourth wall or render your inner state/feelings as code, pseudo-code, system output, or commands to run): ' + bits.join('; ') + '.') : '';
@@ -49262,7 +49337,6 @@ Use this template for your response:
   if (RK.hormone.vasopressin == null) RK.hormone.vasopressin = 0.2;   // backfill: vasopressin (pair-bonding + guarding — complements oxytocin)
   if (RK.hormone.adrenaline == null) RK.hormone.adrenaline = 0.1;   // fast acute fight-or-flight surge (faster than cortisol)
   if (RK.hormone.orexin == null) RK.hormone.orexin = 0.5;   // wakefulness stabiliser (couples feeding ↔ arousal ↔ sleep)
-  if (RK.hormone.thyroid == null) RK.hormone.thyroid = 0.5;   // slow metabolic-rate baseline
   RK.metab = RK.metab || { glucose: 0.6, ghrelin: 0.3, leptin: 0.4 };   // APPETITE/METABOLISM — glucose (blood sugar) · ghrelin (hunger) · leptin (satiety)
   RK.hpa = RK.hpa || { chronic: 0, burnout: 0 };   // HPA STRESS AXIS — chronic load → burnout (blunted, depleted)
   RK.immune = RK.immune || { inflammation: 0 };   // IMMUNE / INFLAMMATION — sickness behaviour; degrades the BBB
@@ -49570,6 +49644,12 @@ Use this template for your response:
       var B = RK.beliefs || {}, top = Object.keys(B).sort(function (a, b) { return (B[b].c || 0) - (B[a].c || 0); }).slice(0, 3);
       if (top.length) L.push('beliefs about you — ' + top.map(function (k) { return k + ' ⟨c' + _n2(B[k].c) + '⟩'; }).join(' · '));
       var Le = RK.lessons || []; if (Le.length) L.push('lessons — ' + Le.map(function (x) { return '“' + x.text + '”'; }).join(' · '));
+      var Q = RK.quality; if (Q && (Q.n || 0) >= 3) L.push('how I’m doing — ' + _n2(Q.ema) + ' (' + Q.n + ' reactions)');
+      var F = RK.faculty || {}, fk = Object.keys(F).filter(function (k) { return (F[k].n || 0) >= 5; }).sort(function (a, b) { return (F[b].rel || 0) - (F[a].rel || 0); });
+      if (fk.length) L.push('faculty standing — ' + fk.slice(0, 4).map(function (k) { return k + ' ' + _n2(F[k].rel); }).join(' · '));
+      var U = RK.userModel || {}, ums = [], uk, uv; for (uk in U) { for (uv in U[uk]) { var uc = U[uk][uv], un = (uc.up || 0) + (uc.down || 0); if (un >= 4 && uc.up / un >= 0.62) ums.push(uv); } } if (ums.length) L.push('you respond well to — ' + ums.join(', '));
+      var Gi = RK.gist || {}, gk = Object.keys(Gi).filter(function (k) { return Gi[k].crys; }); if (gk.length) L.push('gut reads I’ve learned to trust — ' + gk.join(', '));
+      var Sc = RK.scratch; if (Sc && Sc.notes && Sc.notes.length) L.push('on my mind right now — ' + Sc.notes.slice(-3).map(function (n) { return n.t; }).join(' · '));
       return L.join('\n');
     }
     if (verb === 'dream' || verb === 'dreams') { var dr = rkDream(); return dr ? '💤 ' + dr : (RK.dreams.length ? RK.dreams.slice(-3).map(function (x) { return '• ' + x; }).join('\n') : 'not enough moments to dream over yet.'); }
@@ -49630,6 +49710,20 @@ Use this template for your response:
     { n: 'usermodel·steer-gate', f: function () { return _fix(function () { RK.userModel = { len: { short: { up: 5, down: 0 } } }; var fires = userModelSteer().indexOf('shorter') >= 0; RK.userModel = { len: { short: { up: 1, down: 0 } } }; return fires && userModelSteer() === ''; }); } },
     { n: 'autorepair·idempotent', f: function () { return _fix(function () { _steerHist = []; RK.neuro = { da: 0.5, sero: 0.6 }; RK.hormone = {}; RK._pin = {}; var b = JSON.stringify(RK.neuro); autoRepair(); return JSON.stringify(RK.neuro) === b; }); } },
     { n: 'autorepair·pin-ease', f: function () { return _fix(function () { _steerHist = []; RK.neuro = { da: 1.0 }; RK.hormone = {}; RK._pin = { da: 3 }; autoRepair(); return RK.neuro.da < 1.0 && RK.neuro.da > 0.5; }); } },
+    { n: 'critique·flags-leak', f: function () { return _fix(function () { _lastUserText = 'how was your day?'; RK.critique = null; selfCritique('Sure — *runs ps -aux* and response_matrix = "happy";'); return !!RK.critique; }); } },
+    { n: 'critique·skips-requested', f: function () { return _fix(function () { _lastUserText = 'write me a python script'; RK.critique = null; selfCritique('here you go: console.log("hi");'); return RK.critique === null; }); } },
+    { n: 'critique·steer-consume', f: function () { return _fix(function () { RK.critique = { reason: 'x', at: Date.now() }; var f = critiqueSteer().indexOf('Self-correction') >= 0; return f && RK.critique === null && critiqueSteer() === ''; }); } },
+    { n: 'scratch·note-dedup', f: function () { return _fix(function () { RK.scratch = { notes: [], at: 0 }; scratchNote('a thing happened today'); scratchNote('a thing happened today'); scratchNote('another thing entirely'); return RK.scratch.notes.length === 2; }); } },
+    { n: 'scratch·steer', f: function () { return _fix(function () { RK.scratch = { notes: [{ t: 'noticed she brightened', at: Date.now() }], at: Date.now() }; var fires = scratchSteer().indexOf('brightened') >= 0; RK.scratch = { notes: [], at: 0 }; return fires && scratchSteer() === ''; }); } },
+    { n: 'scratch·update-similar', f: function () { return _fix(function () { RK.scratch = { notes: [] }; scratchNote('she seems worried about the interview', 0.5); scratchNote('she seems worried about her interview tomorrow', 0.6); return RK.scratch.notes.length === 1 && RK.scratch.notes[0].w > 0.55; }); } },
+    { n: 'scratch·resolve-prunes', f: function () { return _fix(function () { RK.scratch = { notes: [{ t: 'they are waiting on the interview news', at: Date.now(), w: 0.8, kind: 'loop' }] }; scratchResolve('loop', 'interview'); return RK.scratch.notes.length === 0; }); } },
+    { n: 'scratch·evict-by-value', f: function () { return _fix(function () { RK.scratch = { notes: [] }; var ws = ['alpha bravo charlie', 'delta echo foxtrot', 'golf hotel india', 'juliet kilo lima', 'mike november oscar', 'papa quebec romeo']; for (var i = 0; i < 6; i++) scratchNote(ws[i], 0.9); scratchNote('sierra tango unique', 0.05); return RK.scratch.notes.length === 6 && !RK.scratch.notes.some(function (n) { return n.t.indexOf('sierra') >= 0; }); }); } },
+    { n: 'significance·threat-high', f: function () { return _fix(function () { RK.sentinel = { level: 0.9, category: 'x', at: Date.now() }; RK.salience = null; RK.occ = null; return turnSignificance() >= 0.7; }); } },
+    { n: 'significance·calm-low', f: function () { return _fix(function () { RK.sentinel = null; RK.salience = null; RK.occ = null; RK.soma = { arousal: 0.4, tension: 0.1, energy: 0.7 }; RK.neuro = { da: 0.5, sero: 0.6 }; RK.hormone = { cortisol: 0.1 }; RK.bond = { trust: 0.5 }; _selfRegard = 0.5; return turnSignificance() < 0.5; }); } },
+    { n: 'gist·crystallize', f: function () { return _fix(function () { RK.gist = {}; for (var i = 0; i < 4; i++) creditGist('wary', 0.5); return RK.gist.wary.crys === true && RK.gist.wary.up === 4; }); } },
+    { n: 'gist·steer-gate', f: function () { return _fix(function () { RK.gist = { warm: { up: 5, down: 0, crys: true } }; RK.intuit = { label: 'warm', pull: 0.5, at: Date.now() }; var f = gistSteer().indexOf('warm') >= 0; RK.gist.warm.crys = false; return f && gistSteer() === ''; }); } },
+    { n: 'material·surfaced', f: function () { return _fix(function () { RK._materialLine = ''; _surfaceMaterial({ almanac: { fact: 'The Moon is 384,400 km away.' }, calc: { lines: ['20% of 80 is 16'] }, touch: { note: 'wet paper feels slimy' } }); return RK._materialLine.indexOf('384,400') >= 0 && RK._materialLine.indexOf('slimy') >= 0 && RK._materialLine.indexOf('16') < 0; }); } },   // almanac+touch surface as steer text; calc is think-only (secretary owns math text)
+    { n: 'material·empty', f: function () { return _fix(function () { RK._materialLine = 'stale'; _surfaceMaterial(null); return RK._materialLine === ''; }); } },
     { n: 'idf·rare>common', f: function () { return _fix(function () { RK.df = { common: 100, rare: 1 }; RK.dfN = 100; var qs = { common: 1, rare: 1 }, qt = ['common', 'rare']; return _idfRel(['rare', 'zzz'], qs, qt).rel > _idfRel(['common', 'zzz'], qs, qt).rel; }); } },
     { n: 'idf·empty=jaccard', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var r = _idfRel(['alpha', 'gamma'], { alpha: 1, beta: 1 }, ['alpha', 'beta']); return r.n === 1 && Math.abs(r.rel - (1 / 3)) < 1e-9; }); } },
     { n: 'idf·rel-bounds', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var full = _idfRel(['a', 'b'], { a: 1, b: 1 }, ['a', 'b']), none = _idfRel(['x'], { a: 1 }, ['a']); return Math.abs(full.rel - 1) < 1e-9 && none.rel === 0; }); } },
@@ -49969,10 +50063,11 @@ Use this template for your response:
     if (m.author === 'user') {                                   // the user
       _lastUserText = text;   // F2: remember the user's request so a Reflexion lesson keyed on it can resurface on a SIMILAR future user turn (lessonSteer matches USER tokens, not tool-failure text)
       try { if (RK.lastReplyAttrs) { creditUserModel(RK.lastReplyAttrs, valence(text)); RK.lastReplyAttrs = null; } } catch (e) {}   // USER-MODEL: this turn's valence rewards the PREVIOUS reply's shape (implicit, denser than thumbs)
+      try { if (RK.lastGut) { creditGist(RK.lastGut, valence(text)); RK.lastGut = null; } } catch (e) {}   // CLARION: this turn's valence rewards the PREVIOUS turn's gut read → crystallises reliable intuitions
       try { army().perceive({ who: userName(), role: 'user', text: text, valence: valence(text) }); } catch (e) {}
       if (!(m.customData && m.customData.ghostwritten)) { try { extractSelfObs(text); } catch (e) {} }   // GHOSTWRITE GUARD: a /user-generated turn is read + steered, but its AI-invented details are NOT learned as real user facts (no-op if the tag doesn't reach here)
     } else if (m.author === 'ai') {
-      if (!nm || nm === charName()) { try { if (load().aiTools) { var _at = runAiTools(m.content); if (_at.clean !== m.content) { m.content = _at.clean; text = resolvePlaceholders(m.content); } if (_at.did.length || _at.failed.length) RK.toolEcho = { did: _at.did, failed: _at.failed, at: Date.now() };   /* feedback for next turn */ if (_at.did.length) think('plan', 'acted — ' + _at.did.join('; ')); if (_at.failed.length) { think('cog', 'a tool didn’t take — ' + _at.failed.join('; ')); try { noteLesson(_lastUserText || _at.failed.join(' '), 'an action like that didn’t take before — ' + _at.failed[0]); } catch (e) {} } toolAffect(_at.did.length, _at.failed.length); } } catch (e) {} try { army().reactToSpoken(charName(), text); } catch (e) {} try { renderFidelity(text); } catch (e) {} try { tempoReply(); } catch (e) {} try { echoMark(); } catch (e) {} try { voiceCapture(text); } catch (e) {} try { RK.lastReplyAttrs = _replyAttrs(text); } catch (e) {} }   // AI TOOLS execute+strip first (so the brain hears the clean reply); then it hears itself: FORCE-001, SENSE-005 tempo, SENSE-008 self-echo, FEATURE-2 voice exemplar
+      if (!nm || nm === charName()) { try { if (load().aiTools) { var _at = runAiTools(m.content); if (_at.clean !== m.content) { m.content = _at.clean; text = resolvePlaceholders(m.content); } if (_at.did.length || _at.failed.length) RK.toolEcho = { did: _at.did, failed: _at.failed, at: Date.now() };   /* feedback for next turn */ if (_at.did.length) think('plan', 'acted — ' + _at.did.join('; ')); if (_at.failed.length) { think('cog', 'a tool didn’t take — ' + _at.failed.join('; ')); try { noteLesson(_lastUserText || _at.failed.join(' '), 'an action like that didn’t take before — ' + _at.failed[0]); } catch (e) {} } toolAffect(_at.did.length, _at.failed.length); } } catch (e) {} try { army().reactToSpoken(charName(), text); } catch (e) {} try { renderFidelity(text); } catch (e) {} try { tempoReply(); } catch (e) {} try { echoMark(); } catch (e) {} try { voiceCapture(text); } catch (e) {} try { RK.lastReplyAttrs = _replyAttrs(text); } catch (e) {} try { selfCritique(text); } catch (e) {} }   // AI TOOLS execute+strip first (so the brain hears the clean reply); then it hears itself: FORCE-001, SENSE-005 tempo, SENSE-008 self-echo, FEATURE-2 voice exemplar
       else { try { army().perceive({ who: nm, role: 'other', text: text, valence: valence(text) }); army().reactToSpoken(nm, text); } catch (e) {} }   // another bot in the thread
     } else if (m.author === 'system' || nm === narratorName()) {  // narrator / scene-setting — read as context
       try { army().perceive({ who: nm || narratorName(), role: 'other', text: text, valence: 0 }); } catch (e) {}
@@ -50015,7 +50110,7 @@ Use this template for your response:
           var rookLine = ''; try { if (s.rook !== false) rookLine = rookSteer(last.content); } catch (e) {}   // Rook layer: governance/foresight/restraint inner read (on by default)
           try { var _insp = army().inspect(); var _cl = _insp.council || []; var _spoke = _cl.filter(function (c) { return c.spokeLast || c.standing === 'core' || c.standing === 'seated'; }).map(function (c) { return c.id; }); if (_spoke.length) think('council', 'weighing it across ' + _spoke.length + ' inner voices (a council, not one model): ' + _spoke.slice(0, 4).join(', ')); } catch (e) {}  // which faculties weighed in
           var vocabLine = ''; try { vocabLine = vocabSteer(last.content); } catch (e) {}   // EXTERNAL VOCAB: match the user's register (word-choice, not just stance)
-          var steer = dir + (rookLine ? ' ' + rookLine : '') + (ground ? ' Draw on what is established: ' + ground : '') + (vocabLine ? ' ' + vocabLine : '');   // grounded in the thread's stored memory/lore
+          var steer = dir + (rookLine ? ' ' + rookLine : '') + (RK._materialLine ? ' ' + RK._materialLine : '') + (ground ? ' Draw on what is established: ' + ground : '') + (vocabLine ? ' ' + vocabLine : '');   // grounded in the thread's stored memory/lore + the contributor tier's facts/figures/sensory notes (_surfaceMaterial, set inside decide())
           var ctxLine = ''; try { ctxLine = deviceTimeLine(); } catch (e) {}   // real-world grounding: the actual local time/date (ported from Chloe-solo's device-context injection)
           var richLine = ''; try { richLine = relevantSections(last.content); } catch (e) {}   // only the rich-profile sections relevant to THIS message (keeps a big bible lean)
           if (richLine) try { think('mem', 'drawing on background: ' + _richHit); } catch (e) {}
@@ -50024,7 +50119,7 @@ Use this template for your response:
           _descTurns++; if (load().manageProfile || _descTurns === 2 || _descTurns % 4 === 0) { pushUserDesc(); pushLore(); }   // refresh the learned description + lore as the story moves (every turn while actively managing)
           if (_descTurns % 3 === 0) refreshRecall();   // keep the stored-memory cache warm
         } else {
-          oc.character.reminderMessage = base; // keep the steer out of non-reply turns
+          if (last.author !== 'ai') oc.character.reminderMessage = base; // keep the steer out of non-reply turns — but KEEP it through the AI-reply turn so a REGENERATE re-uses the brain's steer (regens were previously unsteered: the strip ran before the user could click regen). A new user turn re-computes it; system/narrator turns still strip it.
           if (last.author === 'user' && s.useForReplies === false) { try { think('guard', '“steer replies” is off in the Brain tile — I’m watching but not shaping this reply'); } catch (e) {} }   // tell the user WHY the rich per-turn thoughts are quiet
         }
         try { flushThoughts(); } catch (e) {}   // ship this turn's thoughts on their own message, now (no army()-coupling, no lag)
