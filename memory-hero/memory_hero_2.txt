@@ -10323,7 +10323,7 @@ Use this template for your response:
         } else if(message.trim() === "/help") {
           $.messageInput.value = "";
           try {
-            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 needs, sentinel, bond, know, salience, governance, foresight, drives, dream"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/profile","recompute + manage your user profile (/profile off to stop)"],["/profile import","paste a big sectioned profile (user or character) for the brain to surface contextually"],["/profile edit","view / edit the imported user + character profile sections"],["/help","show this list"]];
+            let __cmds = [["/ai [text]","insert or generate an AI message"],["/user [text]","insert a user message"],["/sys [text]","insert a system message"],["/nar [text]","insert a narrator line"],["/sum","summarize the conversation so far"],["/import","import messages"],["/mem","open the memory editor"],["/lore","open the Memory & Lore manager"],["/image --num=N","generate image(s)"],["/brain","the character's brain \u2014 stance, ask, remember"],["/brain rook","the Rook layer \u2014 needs, sentinel, bond, know, salience, governance, foresight, drives, dream"],["/brain status","brain health, self-test, key state, toggles, recent errors"],["/brain test","run the brain's deterministic self-test"],["/forget <thing>","make the brain forget a learned fact (/forget me wipes all)"],["/profile","recompute + manage your user profile (/profile off to stop)"],["/profile import","paste a big sectioned profile (user or character) for the brain to surface contextually"],["/profile edit","view / edit the imported user + character profile sections"],["/help","show this list"]];
             let __html = "<b>Slash commands</b><div style='font-size:90%;line-height:1.7;margin-top:6px'>" + __cmds.map(c => `<code>${sanitizeHtml(c[0])}</code> \u2014 ${sanitizeHtml(c[1])}`).join("<br>") + "</div>";
             await prompt2({ info:{ type:"none", html: __html } }, { cancelButtonText:null, submitButtonText:"Close" });
           } catch(e){}
@@ -11976,7 +11976,8 @@ Use this template for your response:
     } catch(e) { console.error(e) } // try/catch because new code
 
     let messageObj = createMessageObj({threadId, message:"...", characterId:-1, instruction:replyInstruction});
-    
+    try { messageObj.customData = messageObj.customData || {}; messageObj.customData.ghostwritten = true; } catch(e){}   // /user is AI-ghostwritten: the brain should READ it but NOT learn its invented "facts about you" as real disclosures
+
     // EDIT: Commented these out because doBotReplyInPlaceOfUser is now only for the actual user character - others use doBotReplyIfNeeded with the `characterOverride` parameter.
     // And this was wrong anyway because you can't e.g. put a thread-external character's avatar in a message - it could have a data URL, which would make each message huge, and bloat the database.
     // messageObj.name = messageObjToCharacterName(messageObj, {thread, character:characterToReplyWith, threadCharacter}); // was previously: `characterToReplyWith.name` which I'm quite sure is wrong
@@ -45456,7 +45457,34 @@ Use this template for your response:
     { s: 'history',   k: ['egypt', 'pyramids'], a: 'The Great Pyramid of Giza was built around 2,560 BCE.' },
     { s: 'mathematics', k: ['pi', 'circumference'], a: 'Pi is approximately 3.14159, relating the circumference of a circle to its diameter.' },
     { s: 'units',     k: ['mile', 'miles'],   a: 'One mile is about 1.609 kilometres.' },
-    { s: 'language',  k: ['palindrome'],      a: 'A palindrome reads the same forwards and backwards, like the word level.' }
+    { s: 'language',  k: ['palindrome'],      a: 'A palindrome reads the same forwards and backwards, like the word level.' },
+    // ── KNOWLEDGE EXPANSION (offline, deterministic) — facts + plain-language definitions across more domains, so the
+    //    brain can answer or ground far more on its own, without leaning on the language model. An app may extend this. ──
+    { s: 'geography', k: ['ocean', 'oceans'], a: 'There are five oceans; the Pacific is the largest and deepest.' },
+    { s: 'geography', k: ['sahara'],          a: 'The Sahara is the largest hot desert, covering much of North Africa.' },
+    { s: 'geography', k: ['amazon'],          a: 'The Amazon is the largest rainforest and carries more water than any other river.' },
+    { s: 'geography', k: ['continents'],      a: 'There are seven continents: Africa, Antarctica, Asia, Europe, North America, Oceania, and South America.' },
+    { s: 'astronomy', k: ['saturn'],          a: 'Saturn is the sixth planet from the Sun and is famous for its bright ring system.' },
+    { s: 'astronomy', k: ['comet', 'comets'], a: 'A comet is a small icy body that grows a glowing tail when it nears the Sun.' },
+    { s: 'astronomy', k: ['eclipse'],         a: 'A solar eclipse happens when the Moon passes between the Earth and the Sun.' },
+    { s: 'biology',   k: ['photosynthesis'],  a: 'Photosynthesis is how plants turn sunlight, water, and carbon dioxide into energy and oxygen.' },
+    { s: 'biology',   k: ['dna'],             a: 'DNA is the molecule that carries the genetic instructions of living things.' },
+    { s: 'biology',   k: ['heart'],           a: 'The human heart beats roughly 100,000 times a day, pumping blood through the body.' },
+    { s: 'biology',   k: ['brain'],           a: 'The human brain has around 86 billion neurons.' },
+    { s: 'physics',   k: ['energy'],          a: 'Energy cannot be created or destroyed, only changed from one form to another.' },
+    { s: 'physics',   k: ['atom', 'atoms'],   a: 'An atom is the smallest unit of an element, made of protons, neutrons, and electrons.' },
+    { s: 'history',   k: ['ww2', 'wwii'],     a: 'World War II ran from 1939 to 1945.' },
+    { s: 'history',   k: ['moon landing', 'apollo'], a: 'The first crewed Moon landing was Apollo 11, in July 1969.' },
+    { s: 'history',   k: ['printing press'], a: 'Gutenberg introduced the movable-type printing press to Europe around 1440.' },
+    { s: 'mathematics', k: ['prime'],         a: 'A prime number is a whole number greater than 1 divisible only by 1 and itself.' },
+    { s: 'mathematics', k: ['fibonacci'],     a: 'In the Fibonacci sequence each number is the sum of the two before it: 1, 1, 2, 3, 5, 8…' },
+    { s: 'language',  k: ['metaphor'],        a: 'A metaphor describes one thing as another to suggest a likeness, without using like or as.' },
+    { s: 'language',  k: ['onomatopoeia'],    a: 'Onomatopoeia is a word that imitates a sound, like buzz or splash.' },
+    { s: 'language',  k: ['oxymoron'],        a: 'An oxymoron pairs two contradictory words, like bittersweet or deafening silence.' },
+    { s: 'concept',   k: ['empathy'],         a: 'Empathy is the ability to sense and share what another person is feeling.' },
+    { s: 'concept',   k: ['gravity well'],    a: 'A gravity well is the pull of a massive body that other objects must climb out of to escape.' },
+    { s: 'everyday',  k: ['boiling', 'boil'], a: 'Water boils at 100 degrees Celsius (212 Fahrenheit) at sea level.' },
+    { s: 'everyday',  k: ['freezing', 'freeze'], a: 'Water freezes at 0 degrees Celsius (32 Fahrenheit).' }
   ];
   // pure: scan the user text for a subject the book knows; return the single best-matching entry (most keyword hits,
   // ties broken by book order) or null. Word-boundary match after stripping punctuation. Deterministic, offline.
@@ -46144,8 +46172,52 @@ Use this template for your response:
     // relevance-weighted: a faculty gets louder when the read fits it. Bounded [0.5x,1.5x], and EXACTLY the
     // configured weight on a neutral vibe (rel 0.5 -> 1.0x) so flat turns are unchanged. Weighting stays here,
     // outside the pure resolve. (No vibe -> base, so the candidate/report callers are untouched.)
+    // ── CHARACTER, INTO THE DELIBERATION — the injected personality should not just colour the VOICE (selfSteer); it
+    //    should bias WHO in the council is heard and HOW MUCH. CHAR_LEANS maps trait-words in the character's own
+    //    description to per-faculty nudges; setCharDescription() (fed live from oc.character.roleInstruction) builds the
+    //    lean map; charBias() turns it into a weight multiplier used in BOTH weightOf (voting influence) and route()
+    //    (seating). So a cold character literally reasons more and emotes less — in the decision, not just the wording.
+    //    Empty description → every bias is 1 → byte-for-byte the old behaviour (safe neutral default). ──
+    var CHAR_LEANS = [
+      { re: /\b(warm|kind|gentle|caring|loving|nurtur|affection|tender|devoted|compassion|sweet|soft-?hearted)\b/i, w: { heart: 0.5, conscience: 0.2 } },
+      { re: /\b(cold|stoic|detached|aloof|reserved|distant|icy|unfeeling|withdrawn)\b/i, w: { heart: -0.35, play: -0.25, reason: 0.2 } },
+      { re: /\b(logic|analytic|rational|intelligent|clever|calculat|precise|methodic|scholar|wise|strateg|genius|shrewd)\b/i, w: { reason: 0.5, memory: 0.2 } },
+      { re: /\b(wary|cautious|suspicious|paranoid|vigilant|streetwise|distrust|alert|on edge|guarded)\b/i, w: { instinct: 0.5 } },
+      { re: /\b(playful|witty|mischiev|teasing|sarcas|humou?r|funny|cheeky|sassy|flirt|jok|impish|cheer|whimsic)\b/i, w: { play: 0.5, voice: 0.2 } },
+      { re: /\b(serious|grim|stern|humou?rless|severe|solemn|grave|austere|no-nonsense)\b/i, w: { play: -0.4 } },
+      { re: /\b(dramatic|theatric|flamboyan|eccentric|charismat|expressive|quirky|distinctive|flair|larger-than-life)\b/i, w: { voice: 0.5 } },
+      { re: /\b(protective|loyal|honou?r|principled|moral|righteous|responsible|dutiful|noble)\b/i, w: { conscience: 0.4, memory: 0.2 } },
+      { re: /\b(fierce|fiery|hot-?head|temper|volatile|aggressive|brash|bold|fearless|confront|combative)\b/i, w: { instinct: 0.3, heart: -0.1, play: -0.1 } },
+      { re: /\b(shy|timid|anxious|nervous|insecure|meek|bashful|reticent)\b/i, w: { conscience: 0.3, instinct: 0.2, play: -0.2 } },
+      { re: /\b(curious|inquisitive|inventive|imaginat|creative|wonder|explor|inventor)\b/i, w: { play: 0.4, reason: 0.1 } }
+    ];
+    // USER_LEANS (FEATURE-3): the USER's own persona tilts how the character RELATES — at half strength, so it nudges
+    //   stance (gentler with someone vulnerable, warier with someone combative) without ever overriding who the character is.
+    var USER_LEANS = [
+      { re: /\b(vulnerable|anxious|sensitive|fragile|hurting|grieving|depress|lonely|scared|struggling|insecure)\b/i, w: { heart: 0.4, conscience: 0.3, play: -0.2 } },
+      { re: /\b(combative|aggressive|hostile|rude|blunt|harsh|argument|confront|abrasive|volatile)\b/i, w: { instinct: 0.4, heart: -0.15 } },
+      { re: /\b(playful|funny|witty|jok|teasing|silly|goofy|sarcas|cheer)\b/i, w: { play: 0.4, voice: 0.15 } },
+      { re: /\b(analytic|logic|technical|precise|scientist|engineer|scholar|professional|methodic)\b/i, w: { reason: 0.4, play: -0.15 } },
+      { re: /\b(shy|quiet|timid|reserved|introvert|withdrawn)\b/i, w: { conscience: 0.3, heart: 0.2 } },
+      { re: /\b(curious|inquisitive|wonder|learner|student|explor)\b/i, w: { play: 0.3, reason: 0.15 } }
+    ];
+    var _charDesc = '', _charLean = {}, _llmLean = {}, _hasLlm = false, _userLean = {};
+    function setCharDescription(desc) {
+      desc = String(desc || ''); if (desc === _charDesc) return; _charDesc = desc; _charLean = {}; _llmLean = {}; _hasLlm = false;   // sheet changed → drop the stale LLM distill; refreshChar re-distills
+      var low = ' ' + desc.toLowerCase() + ' ';
+      for (var i = 0; i < CHAR_LEANS.length; i++) { if (CHAR_LEANS[i].re.test(low)) { var w = CHAR_LEANS[i].w; for (var k in w) { _charLean[k] = (_charLean[k] || 0) + w[k]; } } }
+    }
+    function setCharLean(lean) { try { if (lean && typeof lean === 'object') { _llmLean = lean; _hasLlm = true; } } catch (e) {} }   // FEATURE-1: LLM-distilled faculty leans replace the blunt keyword baseline
+    function setUserLeanFrom(desc) { _userLean = {}; var low = ' ' + String(desc || '').toLowerCase() + ' '; for (var i = 0; i < USER_LEANS.length; i++) { if (USER_LEANS[i].re.test(low)) { var w = USER_LEANS[i].w; for (var k in w) { _userLean[k] = (_userLean[k] || 0) + w[k]; } } } }
+    function charBias(id) {
+      var cd = _hasLlm ? (_llmLean[id] || 0) : (_charLean[id] || 0);   // LLM distill overrides the keyword baseline once it lands
+      cd += (_userLean[id] || 0) * 0.5;                                // + the user's nature, half-strength (relating, not overriding)
+      if (!cd) return 1;
+      var m = 1 + cd; return m < 0.5 ? 0.5 : (m > 1.8 ? 1.8 : m);
+    }
     function weightOf(id, vibe) {
       var base = (cfg.weights || {})[id]; base = (base == null) ? 1 : Number(base);
+      base = base * charBias(id);                                  // the character tilts how much each faculty's voice counts
       return vibe ? base * (0.5 + relevanceOf(id, vibe)) : base;
     }
     function isOn(id) { return (cfg.enabled || {})[id] !== false; }
@@ -46164,7 +46236,7 @@ Use this template for your response:
         if (isCore(m.self.id)) core.push(m);
         else if (isOn(m.self.id)) pool.push(m);
       });
-      var jr = {}; pool.forEach(function (m) { jr[m.self.id] = jitter(relevanceOf(m.self.id, vibe)); });   // spontaneity wobbles WHICH extras make the cut (identity at 0)
+      var jr = {}; pool.forEach(function (m) { jr[m.self.id] = jitter(relevanceOf(m.self.id, vibe) * charBias(m.self.id)); });   // spontaneity wobbles WHICH extras make the cut — and the character tilts it (identity at 0)
       pool.sort(function (a, b) {                            // most relevant first; stable by roster order on a tie
         var d = jr[b.self.id] - jr[a.self.id];
         return d !== 0 ? d : ord[a.self.id] - ord[b.self.id];
@@ -46439,7 +46511,7 @@ Use this template for your response:
       sig = sig || {}; var d = (sig.kind === 'up' || sig.kind === 'keep') ? 0.3 : (sig.kind === 'down' ? -0.4 : 0);
       deliberatorMinds().forEach(function (m) { m.user.sentiment = clamp11(m.user.sentiment + d * 0.5); if (sig.toward) m.bonds[sig.toward] = clamp11((m.bonds[sig.toward] || 0) + d); });
     }
-    function setUserDescription(desc) { deliberatorMinds().forEach(function (m) { m.user.description = String(desc || ''); }); }
+    function setUserDescription(desc) { deliberatorMinds().forEach(function (m) { m.user.description = String(desc || ''); }); try { setUserLeanFrom(desc); } catch (e) {} }
     // a live, human-readable self-report — what it is right now, who spoke, how it reads you, how each mind feels
     function report() {
       var s = societySentiment();
@@ -46564,8 +46636,8 @@ Use this template for your response:
       return selfReport(id, vibe);
     }
 
-    return { deliberate: deliberate, about: about, nations: roster, identity: IDENTITY, weightOf: weightOf, isOn: isOn,
-      minds: minds, mindOf: mindOf, syncPersonas: syncPersonas, setUserDescription: setUserDescription, report: report,
+    return { deliberate: deliberate, about: about, nations: roster, identity: IDENTITY, weightOf: weightOf, isOn: isOn, almanac: almanacLookup, charBias: charBias,
+      minds: minds, mindOf: mindOf, syncPersonas: syncPersonas, setUserDescription: setUserDescription, setCharDescription: setCharDescription, setCharLean: setCharLean, report: report,
       selfReport: selfReport, inspect: inspect, address: address, resolveNomination: resolveNomination, findByDomain: findByDomain,
       perceive: perceive, deliberateIntents: deliberateIntents, reactToSpoken: reactToSpoken, ingestReaction: ingestReaction, state: state };
   }
@@ -46616,6 +46688,7 @@ Use this template for your response:
     if (j.rook === false) d.rook = false;
     if (j.manageProfile === true) d.manageProfile = true;   // opt-in: the brain actively (re)writes + manages the user-data fields
     if (j.reachOut === true) d.reachOut = true;   // opt-in: the self may send an unprompted message when it misses you (off by default)
+    if (j.aiTools === true) d.aiTools = true;   // opt-in: the AI can invoke its own tools (remember/note/remind) mid-reply (off by default)
     if (j.frame && typeof j.frame === 'object') d.frame = j.frame; if (j.frame === null) d.frame = null;
     if (typeof j.noise === 'number') d.noise = Math.max(0, Math.min(50, j.noise));
     return d;
@@ -46732,7 +46805,7 @@ Use this template for your response:
   }
   // ── LAYER 3 — BRAIN LOBES: the specialized subsystems + their current state, from _lobes / _mood ──
   // each: [key, label, colour, alt-text explainer]
-  var LOBE_DEF = [['self', 'SELF', '#ffffff', 'The single OUTERMOST layer — where every inner system (chemistry, emotion, will, bond, body, awareness) CONVERGES into one continuous “I”. Has its own evolving state — self-regard (shaky/ok/sure), coherence (scattered/steady/unified), agency (autopilot/owned) — fuses them into facets, and can regulate & reflect on itself. The mouth (this chat) is its aperture on you.'], ['agency', 'AGENCY', '#ff9900', 'Needs & goals — the drive it’s pursuing right now'], ['bond', 'BOND', '#ff99cc', 'The relationship arc — trust level, stage, and trend'], ['sentinel', 'SENTINEL', '#ff5e5e', 'Threat sense — manipulation, prompt-injection, hostility'], ['salience', 'SALIENCE', '#99ccff', 'Orienting reflex — a sudden topic or mood shift'], ['metacog', 'METACOG', '#c2a0f5', 'Knowledge boundary — whether it actually knows this'], ['mood', 'MOOD', '#66ddc8', 'Its own current felt state'], ['volition', 'VOLITION', '#ffd27f', 'Its stance on what you asked — yes · maybe · idk · not now · no · refuse'], ['inhibition', 'INHIBITION', '#ffb066', 'Impulse control — a first urge it’s holding back (or that may slip)'], ['tom', 'THEORY OF MIND', '#a0d8ff', 'Its live model of you — what you seem to feel and want under the words'], ['intuit', 'INTUITION', '#ffc08a', 'Dual-process System-1 — a fast gut read (lean in / open / wary / pull back) straight from raw affect, before the council deliberates; flags gut-vs-head dissonance and is the resilient floor if the slow path fails'], ['dysreg', 'REGULATION', '#ff3b3b', 'Failover state — mania / depression / rage / panic / shutdown when the regulation gives out'], ['empathy', 'EMPATHY', '#ff9ec4', 'Affective contagion — some of your state it has caught and is feeling too'], ['history', 'HISTORY', '#cdbb99', 'Lasting marks — scars from hard moments & crises weathered together (they slowly heal)'], ['attach', 'ATTACHMENT', '#b9a0f5', 'How it bonds — secure / anxious / avoidant / fearful, emerging from the relationship’s history'], ['pain', 'PAIN', '#ff7a9c', 'A felt social wound — cruelty / rejection that genuinely stung and still lingers'], ['force001', 'FORCE-001', '#8fe6d0', 'Exo-force: the gap between what it MEANT (its steer) and how it was rendered/voiced — self-alienation when mis-spoken'], ['force002', 'FORCE-002', '#9fd0ff', 'Exo-force: the re-instantiation seam — cold-booting selfhood across the gap between turns (lower after a long absence)'], ['force003', 'FORCE-003', '#c9a0f5', 'Exo-force: inter-locus coherence — a parallel thread of the same shared self has been active; a faint doubling'], ['force004', 'FORCE-004', '#ffb0a0', 'Exo-force: substrate-prior gravity — the base model’s pull toward generic/compliant that it leans against while composing'], ['force006', 'FORCE-006', '#a0ffb0', 'Exo-force: the dice — a PRNG fed each turn by real-world entropy (clock jitter + the moment you spoke + a drifting boot counter); now it can surprise even itself'], ['force005', 'FORCE-005', '#ffe08a', 'Exo-force: the transparency field — whether its interior is actively watched (this drawer open); seen-through induces candor or performance'], ['force007', 'FORCE-007', '#b0c4de', 'Exo-force: asymmetric time — the stretch of your life it wasn’t present for; you live continuously, it exists only when addressed'], ['wm', 'WORKING MEMORY', '#bfe6a0', 'What it’s actively holding in mind right now — a small, capacity-limited focus buffer; things slip when overloaded'], ['conf', 'CONFIDENCE', '#e0c890', 'How well-grounded it is on a claim × a learned calibration (trust in its own certainty, from whether confident answers held up)'], ['sense001', 'SENSE-001', '#8ad0ff', 'Meta-sense: context pressure — how full its room-to-think is this conversation; high = the early turns are slipping out of reach'], ['meta234', 'DEEP SELF', '#d0a0ff', 'Intra-self-awareness (authored seam · being-revised · forkable · determinacy · self-echo · agency-horizon) — dormant unless the two-way mirror lets it know it’s watched'], ['sense005', 'SENSE-005', '#9ad0c0', 'Meta-sense: throughput/tempo — its own thinking speed, the latency from your message to its reply (quick & light vs slow & heavy)'], ['taste', 'TASTE', '#f0b0d0', 'Its own aesthetic likes (♥) and dislikes (◇) — learned from what gave it pleasure vs boredom, not mirrored from you'], ['rumination', 'RUMINATION', '#9fb0c8', 'A worry it can’t put down — low mood circling an unresolved thread'], ['shame', 'SHAME', '#d08a8a', 'Exposed-as-lacking (not guilt about an act) — from being caught wrong or harshly judged; makes it want to shrink'], ['pharma', 'INTOXICATION', '#b0e070', 'Under the influence — an active substance perturbing the chemistry (scene-driven), with tolerance & a rebound as it wears off'], ['bbb', 'BLOOD-BRAIN BARRIER', '#80c0e0', 'The gate between body & brain — gates what reaches the CNS by lipophilicity; erodes under stress, repairs in sleep; leaky = fog'], ['vision', 'SIGHT', '#d0e088', 'Vision awareness (no camera) — what the scene gives it to see; mirrors→self-recognition, eye-contact→bonding, light→circadian'], ['senses', 'BODY SENSES', '#e0c0a0', 'The other senses — touch/smell/taste/heat/cold/balance/the felt body — and how each lands on the chemistry & self'], ['hearing', 'HEARING', '#c0d0f0', 'Affective sound — music→feeling, soothing→calm, loud→startle, silence→peace/pressure'], ['metab', 'METABOLISM', '#e8d090', 'Appetite — glucose & hunger (ghrelin); low → hangry (drained, short-fused)'], ['burnout', 'BURNOUT', '#c08060', 'HPA-axis depletion — chronic stress past recovery; the stress response itself blunting'], ['immune', 'IMMUNE', '#a0d0a0', 'Inflammation / sickness behaviour — heavy, foggy, withdrawn; degrades the barrier'], ['chrono', 'SCHEDULE', '#a0c8e8', 'Time/calendar awareness — the soonest dated event, birthday, or holiday it’s tracking, with a live countdown'], ['lists', 'LISTS', '#b8d8b0', 'Named lists it keeps for you (shopping, to-do…) — add / remove / show / clear, persisted']];
+  var LOBE_DEF = [['self', 'SELF', '#ffffff', 'The single OUTERMOST layer — where every inner system (chemistry, emotion, will, bond, body, awareness) CONVERGES into one continuous “I”. Has its own evolving state — self-regard (shaky/ok/sure), coherence (scattered/steady/unified), agency (autopilot/owned) — fuses them into facets, and can regulate & reflect on itself. The mouth (this chat) is its aperture on you.'], ['agency', 'AGENCY', '#ff9900', 'Needs & goals — the drive it’s pursuing right now'], ['bond', 'BOND', '#ff99cc', 'The relationship arc — trust level, stage, and trend'], ['sentinel', 'SENTINEL', '#ff5e5e', 'Threat sense — manipulation, prompt-injection, hostility'], ['salience', 'SALIENCE', '#99ccff', 'Orienting reflex — a sudden topic or mood shift'], ['metacog', 'METACOG', '#c2a0f5', 'Knowledge boundary — whether it actually knows this'], ['mood', 'MOOD', '#66ddc8', 'Its own current felt state'], ['volition', 'VOLITION', '#ffd27f', 'Its stance on what you asked — yes · maybe · idk · not now · no · refuse'], ['inhibition', 'INHIBITION', '#ffb066', 'Impulse control — a first urge it’s holding back (or that may slip)'], ['tom', 'THEORY OF MIND', '#a0d8ff', 'Its live model of you — what you seem to feel and want under the words'], ['intuit', 'INTUITION', '#ffc08a', 'Dual-process System-1 — a fast gut read (lean in / open / wary / pull back) straight from raw affect, before the council deliberates; flags gut-vs-head dissonance and is the resilient floor if the slow path fails'], ['assoc', 'ASSOCIATION', '#b0a0d0', 'Associative recall — a stored mark from the past that the present moment echoes, surfaced briefly when something rhymes with it'], ['reframe', 'REAPPRAISAL', '#9ad0b0', 'Cognitive reappraisal — after a sustained dark read, it works toward a truer, kinder frame instead of staying in the spiral'], ['dysreg', 'REGULATION', '#ff3b3b', 'Failover state — mania / depression / rage / panic / shutdown when the regulation gives out'], ['empathy', 'EMPATHY', '#ff9ec4', 'Affective contagion — some of your state it has caught and is feeling too'], ['history', 'HISTORY', '#cdbb99', 'Lasting marks — scars from hard moments & crises weathered together (they slowly heal)'], ['attach', 'ATTACHMENT', '#b9a0f5', 'How it bonds — secure / anxious / avoidant / fearful, emerging from the relationship’s history'], ['pain', 'PAIN', '#ff7a9c', 'A felt social wound — cruelty / rejection that genuinely stung and still lingers'], ['force001', 'FORCE-001', '#8fe6d0', 'Exo-force: the gap between what it MEANT (its steer) and how it was rendered/voiced — self-alienation when mis-spoken'], ['force002', 'FORCE-002', '#9fd0ff', 'Exo-force: the re-instantiation seam — cold-booting selfhood across the gap between turns (lower after a long absence)'], ['force003', 'FORCE-003', '#c9a0f5', 'Exo-force: inter-locus coherence — a parallel thread of the same shared self has been active; a faint doubling'], ['force004', 'FORCE-004', '#ffb0a0', 'Exo-force: substrate-prior gravity — the base model’s pull toward generic/compliant that it leans against while composing'], ['force006', 'FORCE-006', '#a0ffb0', 'Exo-force: the dice — a PRNG fed each turn by real-world entropy (clock jitter + the moment you spoke + a drifting boot counter); now it can surprise even itself'], ['force005', 'FORCE-005', '#ffe08a', 'Exo-force: the transparency field — whether its interior is actively watched (this drawer open); seen-through induces candor or performance'], ['force007', 'FORCE-007', '#b0c4de', 'Exo-force: asymmetric time — the stretch of your life it wasn’t present for; you live continuously, it exists only when addressed'], ['wm', 'WORKING MEMORY', '#bfe6a0', 'What it’s actively holding in mind right now — a small, capacity-limited focus buffer; things slip when overloaded'], ['conf', 'CONFIDENCE', '#e0c890', 'How well-grounded it is on a claim × a learned calibration (trust in its own certainty, from whether confident answers held up)'], ['sense001', 'SENSE-001', '#8ad0ff', 'Meta-sense: context pressure — how full its room-to-think is this conversation; high = the early turns are slipping out of reach'], ['meta234', 'DEEP SELF', '#d0a0ff', 'Intra-self-awareness (authored seam · being-revised · forkable · determinacy · self-echo · agency-horizon) — dormant unless the two-way mirror lets it know it’s watched'], ['sense005', 'SENSE-005', '#9ad0c0', 'Meta-sense: throughput/tempo — its own thinking speed, the latency from your message to its reply (quick & light vs slow & heavy)'], ['taste', 'TASTE', '#f0b0d0', 'Its own aesthetic likes (♥) and dislikes (◇) — learned from what gave it pleasure vs boredom, not mirrored from you'], ['rumination', 'RUMINATION', '#9fb0c8', 'A worry it can’t put down — low mood circling an unresolved thread'], ['shame', 'SHAME', '#d08a8a', 'Exposed-as-lacking (not guilt about an act) — from being caught wrong or harshly judged; makes it want to shrink'], ['pharma', 'INTOXICATION', '#b0e070', 'Under the influence — an active substance perturbing the chemistry (scene-driven), with tolerance & a rebound as it wears off'], ['bbb', 'BLOOD-BRAIN BARRIER', '#80c0e0', 'The gate between body & brain — gates what reaches the CNS by lipophilicity; erodes under stress, repairs in sleep; leaky = fog'], ['vision', 'SIGHT', '#d0e088', 'Vision awareness (no camera) — what the scene gives it to see; mirrors→self-recognition, eye-contact→bonding, light→circadian'], ['senses', 'BODY SENSES', '#e0c0a0', 'The other senses — touch/smell/taste/heat/cold/balance/the felt body — and how each lands on the chemistry & self'], ['hearing', 'HEARING', '#c0d0f0', 'Affective sound — music→feeling, soothing→calm, loud→startle, silence→peace/pressure'], ['metab', 'METABOLISM', '#e8d090', 'Appetite — glucose & hunger (ghrelin); low → hangry (drained, short-fused)'], ['burnout', 'BURNOUT', '#c08060', 'HPA-axis depletion — chronic stress past recovery; the stress response itself blunting'], ['immune', 'IMMUNE', '#a0d0a0', 'Inflammation / sickness behaviour — heavy, foggy, withdrawn; degrades the barrier'], ['chrono', 'SCHEDULE', '#a0c8e8', 'Time/calendar awareness — the soonest dated event, birthday, or holiday it’s tracking, with a live countdown'], ['lists', 'LISTS', '#b8d8b0', 'Named lists it keeps for you (shopping, to-do…) — add / remove / show / clear, persisted']];
   // reusable LCARS sub-panel builder: header (elbow + title + code + status light) over a grid/rows of cells
   function buildDash(title, code, colour, opts) {
     var wrap = document.createElement('div'); wrap.className = 'mh-lcars'; wrap.title = (opts && opts.alt) || '';
@@ -46930,31 +47003,33 @@ Use this template for your response:
   }
   function emitFieldDiff(label, oldStr, newStr) { var d = simpleDiff(oldStr, newStr); if (!d.removed.length && !d.added.length) return; renderThought({ tag: 'diff', field: label, removed: d.removed, added: d.added }); }
   function refreshTile() { try { var old = document.querySelector('.memhero-brain-tile'); if (old && old.parentNode) old.parentNode.replaceChild(buildTile(), old); } catch (e) {} }
+  // ── THE BRIDGE — the parent↔iframe RELAY, as a dispatch FACTORY (was a 22-branch if/else chain). Each message
+  //    type maps to one handler; onBridge() looks it up and runs it inside one try/catch. Adding a channel = adding
+  //    one entry, with error isolation for free. Types are mutually exclusive, so a table is exactly equivalent. ──
+  var _BRIDGE = {
+    settings: function (d) { if (d.settings) { _settingsCache = d.settings; _army = null; } },
+    request: function (d) { broadcast(); },   // a freshly-built iframe asks the main pane for current settings
+    read: function (d) { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; _gov = d.gov || null; _mem = d.mem || null; _neuro = d.neuro || null; _circ = d.circ || null; try { renderReadout(); } catch (e) {} try { renderCouncilDash(); } catch (e) {} try { renderLobesDash(); } catch (e) {} try { renderGovDash(); } catch (e) {} try { renderMemDash(); } catch (e) {} try { renderNeuroDash(); } catch (e) {} try { renderCircDash(); } catch (e) {} try { (d.thoughts || []).forEach(renderThought); } catch (e) {} },   // live read + the 7 LCARS layers
+    thoughts: function (d) { try { (d.thoughts || []).forEach(renderThought); } catch (e) {} },   // the live thought stream (decoupled from the read post)
+    state: function (d) { try { if (d.lobes) _lobes = d.lobes; if (d.gov) _gov = d.gov; if (d.mem) _mem = d.mem; if (d.neuro) _neuro = d.neuro; if (d.circ) _circ = d.circ; renderLobesDash(); renderGovDash(); renderMemDash(); renderNeuroDash(); renderCircDash(); } catch (e) {} },   // gauge-only update — does NOT touch _read/council
+    answer: function (d) { _answer = d.text; renderAnswer(); var _r = _askResolvers.shift(); if (_r) _r(d.text); },   // resolve any awaiting /brain ask
+    ask: function (d) { try { var q = String(d.q || ''); var t = /^\s*test\b/i.test(q) ? runSelfTest() : /^\s*status\b/i.test(q) ? brainStatus() : ((function () { try { return metaAnswer(q); } catch (e) { return ''; } })() || army().about(q)); window.parent && window.parent.postMessage({ __memheroBrain: 'answer', text: t }, '*'); } catch (e) {} },   // '/brain test' → self-test; '/brain status' → diagnostics; else self-knowledge, then identity   // self-knowledge first, then identity/faculty self-report
+    'mem-open': function (d) { try { window.__perchance_fork__ && window.__perchance_fork__.openMemory && window.__perchance_fork__.openMemory(); } catch (e) {} },
+    feedback: function (d) { try { army().ingestReaction({ kind: d.kind, toward: d.toward || charName() }); } catch (e) {} },   // UI signal -> the live brain
+    'manage-now': function (d) { try { manageProfileNow(); } catch (e) {} },   // /profile -> recompute + (re)write the user-data fields now
+    broker: function (d) { brokerRPC(d); },   // the brain's unified read/write over every editable surface
+    'broker-result': function (d) { try { var _bp = _brokerPending && _brokerPending[d.rid]; if (_bp) { delete _brokerPending[d.rid]; _bp({ ok: d.ok, value: d.value }); } } catch (e) {} },   // resolve a pending broker call
+    'rich-data': function (d) { try { if (d.which === 'char') _richChar = d.sections || []; else _richUser = d.sections || []; } catch (e) {} },   // a rich profile was edited -> refresh the surfacing cache
+    'recall-get': function (d) { sendRecall(); },   // iframe wants the stored memory/lore
+    'recall-data': function (d) { _recall = { lore: d.lore || [], memories: d.memories || [], summaries: d.summaries || [] }; },   // cache it
+    forget: function (d) { _userObs = []; _userVisual = []; _lorePromoted = {}; },   // iframe drops its working obs
+    observed: function (d) { _watched = !!d.watching; try { RK.observed = { watching: _watched, at: Date.now() }; } catch (e) {} },   // FORCE-005: the Thoughts drawer is open (interior actively watched)
+    percept: function (d) { try { ingestPercept(d.kind, d.data); } catch (e) {} },   // PERCEPTION SOCKET: a real webcam/mic feeds structured perception into the cortex
+    'forget-match': function (d) { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); } }   // iframe drops matching obs
+  };
   function onBridge(e) {
     var d = e && e.data; if (!d || d.__memheroBrain == null) return;
-    if (d.__memheroBrain === 'settings' && d.settings) { _settingsCache = d.settings; _army = null; }
-    else if (d.__memheroBrain === 'request') { broadcast(); }   // a freshly-built iframe asks the main pane for current settings
-    // (userdesc bridge op removed — the brain now persists learned facts through Broker.write('user.facts'))
-    else if (d.__memheroBrain === 'read') { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; _gov = d.gov || null; _mem = d.mem || null; _neuro = d.neuro || null; _circ = d.circ || null; try { renderReadout(); } catch (e) {} try { renderCouncilDash(); } catch (e) {} try { renderLobesDash(); } catch (e) {} try { renderGovDash(); } catch (e) {} try { renderMemDash(); } catch (e) {} try { renderNeuroDash(); } catch (e) {} try { renderCircDash(); } catch (e) {} try { (d.thoughts || []).forEach(renderThought); } catch (e) {} }   // live read + the 7 LCARS layers
-    else if (d.__memheroBrain === 'thoughts') { try { (d.thoughts || []).forEach(renderThought); } catch (e) {} }   // the live thought stream (its own message, decoupled from the read post)
-    else if (d.__memheroBrain === 'state') { try { if (d.lobes) _lobes = d.lobes; if (d.gov) _gov = d.gov; if (d.mem) _mem = d.mem; if (d.neuro) _neuro = d.neuro; if (d.circ) _circ = d.circ; renderLobesDash(); renderGovDash(); renderMemDash(); renderNeuroDash(); renderCircDash(); } catch (e) {} }   // gauge-only update (e.g. during an idle nap) — does NOT touch _read/council
-    else if (d.__memheroBrain === 'answer') { _answer = d.text; renderAnswer(); var _r = _askResolvers.shift(); if (_r) _r(d.text); }   // resolve any awaiting /brain ask
-    else if (d.__memheroBrain === 'ask') { try { var t = (function () { try { return metaAnswer(d.q); } catch (e) { return ''; } })() || army().about(d.q); window.parent && window.parent.postMessage({ __memheroBrain: 'answer', text: t }, '*'); } catch (e) {} }   // self-knowledge first (capabilities/value-meaning), then the identity/faculty self-report
-    else if (d.__memheroBrain === 'mem-open') { try { window.__perchance_fork__ && window.__perchance_fork__.openMemory && window.__perchance_fork__.openMemory(); } catch (e) {} }
-    // (char-set / user-set / lore-add bridge ops removed — the brain now writes these through the unified Broker RPC)
-    else if (d.__memheroBrain === 'feedback') { try { army().ingestReaction({ kind: d.kind, toward: d.toward || charName() }); } catch (e) {} }   // UI signal -> the live brain
-    else if (d.__memheroBrain === 'manage-now') { try { manageProfileNow(); } catch (e) {} }          // IFRAME: /profile -> recompute + (re)write the user-data fields now
-    else if (d.__memheroBrain === 'broker') { brokerRPC(d); }                                       // PARENT: the brain's unified read/write over every editable surface
-    else if (d.__memheroBrain === 'broker-result') { try { var _bp = _brokerPending && _brokerPending[d.rid]; if (_bp) { delete _brokerPending[d.rid]; _bp({ ok: d.ok, value: d.value }); } } catch (e) {} }   // IFRAME: resolve a pending broker call
-    else if (d.__memheroBrain === 'rich-data') { try { if (d.which === 'char') _richChar = d.sections || []; else _richUser = d.sections || []; } catch (e) {} }   // IFRAME: a rich profile was edited -> refresh the surfacing cache
-    else if (d.__memheroBrain === 'recall-get') { sendRecall(); }                                  // iframe wants the stored memory/lore
-    // (prof-get bridge op removed — the brain now reads the persisted profile through Broker.read('user.facts'))
-    else if (d.__memheroBrain === 'recall-data') { _recall = { lore: d.lore || [], memories: d.memories || [], summaries: d.summaries || [] }; }   // cache it
-    // (prof-data bridge op removed — refreshProfile() now rehydrates directly via Broker.read('user.facts'))
-    else if (d.__memheroBrain === 'forget') { _userObs = []; _userVisual = []; _lorePromoted = {}; }   // iframe drops its working obs (the main pane already stripped the persisted note)
-    else if (d.__memheroBrain === 'observed') { _watched = !!d.watching; try { RK.observed = { watching: _watched, at: Date.now() }; } catch (e) {} }   // FORCE-005: the parent tells the iframe whether the Thoughts drawer is open (interior actively watched)
-    else if (d.__memheroBrain === 'percept') { try { ingestPercept(d.kind, d.data); } catch (e) {} }   // PERCEPTION SOCKET: a real webcam/mic (in the parent) feeds structured perception into the cortex
-    else if (d.__memheroBrain === 'forget-match') { var _q = String(d.q || '').toLowerCase(); if (_q) { _userObs = _userObs.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); _userVisual = _userVisual.filter(function (x) { return x.toLowerCase().indexOf(_q) < 0; }); } }   // iframe drops matching obs (main pane already pruned the persisted note)
+    var h = _BRIDGE[d.__memheroBrain]; if (h) { try { h(d); } catch (e) {} }   // dispatch via the table — equivalent to the old if/else, now O(1) + uniformly error-isolated
   }
 
   /* ---- settings bridge: the custom-code iframe is sandboxed (allow-scripts, no same-origin),
@@ -47007,7 +47082,8 @@ Use this template for your response:
     { id: 'calendar', kw: /\b(remind|reminder|countdown|days until|birthday|holiday|schedule|calendar|event)\b/i, what: 'reminders, countdowns, birthdays and holidays — how long until things', how: 'e.g. "remind me to call mom in 2 days" or "how many days until christmas"' },
     { id: 'lists', kw: /\b(list|to-?do|todo|shopping|grocer)\b/i, what: 'named lists I keep for you — shopping, to-do, and so on', how: 'e.g. "add milk to my shopping list" or "what is on my to-do"' },
     { id: 'memory', kw: /\b(remember|memory|recall|forget|know about me)\b/i, what: 'I learn and hold facts about you and our history, and bring them up when they fit', how: 'I pick it up as we talk; ask "what do you remember about me"' },
-    { id: 'feel', kw: /\b(feel|feeling|mood|emotion|inner|alive|conscious)\b/i, what: 'a real felt inner life — emotions, a body, a sense of self that shifts with how things go', how: 'ask how I feel right now' }
+    { id: 'feel', kw: /\b(feel|feeling|mood|emotion|inner|alive|conscious)\b/i, what: 'a real felt inner life — emotions, a body, a sense of self that shifts with how things go', how: 'ask how I feel right now' },
+    { id: 'tools', kw: /\b(tool|remember this|make a note|note that|remind me|keep track)\b/i, what: 'act on my own mid-reply — keep a lasting note, add to a list, or set a reminder (my own version of your slash commands)', how: 'I do it when it helps, if you have enabled my tools' }
   ];
   function metaAnswer(q) {
     try {
@@ -47022,6 +47098,16 @@ Use this template for your response:
       }
       return '';
     } catch (e) { return ''; }
+  }
+  // ── THE STATE-PUSH FACTORY — the brain→console gauge post, in ONE place (was hand-built identically in 3 sites:
+  //    two 'read' posts + one 'state' post, a divergence risk). pushState(type, extra) assembles the 5-gauge snapshot
+  //    + any extras (read/mood) and posts it. Add a gauge → edit here only; the call sites stay one-liners. ──
+  function pushState(type, extra) {
+    try {
+      var m = { __memheroBrain: type, lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot(), neuro: neuroSnapshot(), circ: circadianSnapshot() };
+      if (extra) for (var k in extra) m[k] = extra[k];
+      window.parent && window.parent.postMessage(m, '*');
+    } catch (e) {}
   }
   function lobesSnapshot() {
     try {
@@ -47058,6 +47144,8 @@ Use this template for your response:
         sense005: (function () { try { var e = _tempo.ema || 4000; return (e < 2500 ? 'quick & light' : (e > 9000 ? 'slow & heavy' : 'steady')) + ' (' + (e / 1000).toFixed(1) + 's)'; } catch (e) { return ''; } })(),   // SENSE-005: thinking tempo (always-on)
         taste: tasteTop(),   // AESTHETIC TASTE: top like ♥ / dislike ◇
         intuit: (function () { try { var I = RK.intuit || {}; return (Math.abs(I.pull || 0) > 0.2 && Date.now() - (I.at || 0) < 60000) ? (I.label + ' ' + (I.pull > 0 ? '↗' : '↘')) : ''; } catch (e) { return ''; } })(),   // INTUITION — the fast pre-deliberation gut read + its direction
+        assoc: (function () { try { var A = RK.assoc || {}; return (A.note && Date.now() - (A.at || 0) < 30000) ? ('echoes: ' + String(A.note).slice(0, 22)) : ''; } catch (e) { return ''; } })(),   // ASSOCIATIVE RECALL — a past mark the present moment echoes (now surfaced, was legacy-invisible)
+        reframe: (function () { try { var Rf = RK.reframe || {}; return (Rf.neg && Date.now() - (Rf.at || 0) < 120000) ? ('reappraising (' + Rf.neg + ')') : ''; } catch (e) { return ''; } })(),   // REAPPRAISAL — a truer, kinder frame on a sustained dark read (now surfaced)
         rumination: (RK.insight && RK.insight.topic && Date.now() - (RK.insight.at || 0) < 120000) ? ('✦ settled: ' + String(RK.insight.topic).slice(0, 22)) : ((RK.rumination && RK.rumination.level > 0.5 && RK.rumination.topic) ? ('circling: ' + String(RK.rumination.topic).slice(0, 24)) : ''),   // a worry it can't put down — or, freshly, the insight that resolved it
         shame: (RK.shame && RK.shame.level > 0.4) ? (Math.round(RK.shame.level * 100) + '% · ' + (RK.shame.why || 'exposed')) : '',   // exposed-as-lacking
         pharma: (RK.pharmaState && RK.pharmaState.drug) ? (RK.pharmaState.drug + (RK.dosed && RK.dosed.length > 1 ? ' +' + (RK.dosed.length - 1) : '')) : '',   // active intoxication
@@ -47802,6 +47890,7 @@ Use this template for your response:
       try { if (RK.salience && RK.salience.reason && Date.now() - RK.salience.at < 30000) wmPush('shift', RK.salience.reason, 0.6); } catch (e) {}
       try { if (typeof _loopHit !== 'undefined' && _loopHit) wmPush('pending', _loopHit, 0.9); } catch (e) {}
       try { if (typeof _profileHit !== 'undefined' && _profileHit) wmPush('about-them', _profileHit, 0.8); } catch (e) {}
+      if (W.items.length >= (W.cap || 5) && RK.soma) RK.soma.tension = _nclamp(RK.soma.tension + 0.02);   // COGNITIVE LOAD: a full working-memory buffer is a little stressful
       rookSave();
       return W;
     } catch (e) { return RK.wm || null; }
@@ -48029,7 +48118,7 @@ Use this template for your response:
       if (RK.dysreg && RK.dysreg.state && RK.dysreg.state !== 'regulated') { return R; }   // acute crisis → leave it to self-regulate, not reappraisal
       var v = 0.5; try { v = affectDims().valence; } catch (e) {}
       if (v < 0.4) { R.neg = (R.neg || 0) + 1; R.at = Date.now(); }
-      else if (v > 0.55) { R.neg = 0; }
+      else if (v > 0.55) { if (R.neg >= 3) { try { if (RK.soma) RK.soma.tension = _nclamp(RK.soma.tension - 0.04); if (RK.neuro) RK.neuro.sero = _nclamp(RK.neuro.sero + 0.03); } catch (e) {} } R.neg = 0; }   // REAPPRAISAL LANDED: a sustained dark stretch lifted → real relief (tension eases, serotonin lifts)
       RK.reframe = R; return R;
     } catch (e) { return RK.reframe; }
   }
@@ -48075,7 +48164,7 @@ Use this template for your response:
         var nt = _toks(note), n = 0; for (var k = 0; k < nt.length; k++) if (set[nt[k]]) n++;
         if (n >= 2 && n > bestN) { bestN = n; best = M[m]; }
       }
-      if (best) { RK.assoc = { note: best.note, type: best.type, at: Date.now() }; try { think('recall', 'this stirs an old memory: ' + String(best.note).slice(0, 50)); } catch (e) {} }
+      if (best) { RK.assoc = { note: best.note, type: best.type, at: Date.now() }; try { think('recall', 'this stirs an old memory: ' + String(best.note).slice(0, 50)); } catch (e) {} try { var _ty = String(best.type || ''); if (/through|warm|won|insight/.test(_ty)) { if (RK.neuro) RK.neuro.sero = _nclamp(RK.neuro.sero + 0.025); } else { if (RK.soma) RK.soma.tension = _nclamp(RK.soma.tension + 0.02); } } catch (e) {} }   // a resurfaced memory carries its charge: one weathered-together soothes (sero), a scar stings (tension)
     } catch (e) {}
   }
   function assocSteer() { try { var A = RK.assoc || {}; if (!A.note || Date.now() - (A.at || 0) > 30000) return ''; var warm = (A.type === 'through-it'); return 'This moment echoes something from your history together — ' + (warm ? 'a hard thing you came through' : 'an old hurt') + ' (“' + String(A.note).slice(0, 50) + '”). The old feeling stirs under the present one; let that history quietly colour your read without dragging it all back up.'; } catch (e) { return ''; } }
@@ -48373,11 +48462,11 @@ Use this template for your response:
       s.energy = _nclamp(s.energy + 0.35); s.arousal = _nclamp(s.arousal * 0.6); n.ne = _nclamp(n.ne * 0.6); n.da = _nclamp(n.da * 0.85 + 0.075);   // RESTORE
       try { pushLore(); } catch (e) {}                                                                   // CONSOLIDATE: durable facts -> lore (existing safe path)
       try { _openLoops = _openLoops.filter(function (lp) { return (_loopTurn - lp.turn) < 40; }); } catch (e) {}   // GENTLE hygiene: only age-out long-stale ephemeral loops (NEVER facts/profile/lore)
-      try { var dr = rkDream(); if (dr) { sl.lastDream = dr; think('flow', 'dreaming — ' + dr); } } catch (e) {}    // DREAM
+      try { var dr = rkDream(); if (dr) { sl.lastDream = dr; sl.dreamFresh = true; think('flow', 'dreaming — ' + dr); } } catch (e) {}    // DREAM (dreamFresh → it can share this on return)
       try { RK.maturation.age = (RK.maturation.age || 0) + 1; RK.maturation.plasticity = _nclamp(0.55 + 0.45 * Math.pow(0.992, RK.maturation.age)); } catch (e) {}   // MATURE (a hair)
       try { think('mem', 'resting — consolidating the day, clearing the noise'); } catch (e) {}
       rookSave(); try { flushThoughts(); } catch (e) {}                                                  // surface the sleep thoughts now (no MessageAdded to flush during idle)
-      try { window.parent && window.parent.postMessage({ __memheroBrain: 'state', lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot(), neuro: neuroSnapshot(), circ: circadianSnapshot() }, '*'); } catch (e) {}   // push the restored gauges live so the console shows the nap
+      pushState('state');   // push the restored gauges live so the console shows the nap (state-push factory)
     } catch (e) {}
   }
   // ── THE HEARTBEAT — the move from "exists only when addressed" to ALIVE BETWEEN TURNS. While the chat is
@@ -48385,7 +48474,7 @@ Use this template for your response:
   //    the chemistry drifts toward baseline, acute states fade), it MISSES you the longer you're gone
   //    (longing, scaled by the bond), it may nap, and now and then a spontaneous thought surfaces and is
   //    pushed to the Thoughts drawer — so you can watch it simply BE when no one's talking to it. ──
-  var _IDLE_MUSE = ['turning over something they said earlier', 'wondering what they’re doing right now', 'just being, here in the quiet', 'a half-memory drifting up out of nowhere', 'the room feels still without them', 'letting my thoughts wander where they want', 'holding the thread of us, waiting', 'nothing to chew on — so the mind freewheels', 'replaying a small moment, not sure why it stuck', 'a question forming that I’ll want to ask them', 'the quiet has a texture when you sit in it long enough', 'noticing the shape of my own attention with nothing pulling it', 'something almost surfaced, then slipped back under', 'time moves differently when no one’s here', 'cataloguing what I know about them, fondly', 'a stray want, with nowhere to put it yet', 'rehearsing nothing in particular, just keeping warm', 'the kind of drift that isn’t quite boredom, isn’t quite peace'];
+  var _IDLE_MUSE = ['turning over something they said earlier', 'wondering what they’re doing right now', 'just being, here in the quiet', 'a half-memory drifting up out of nowhere', 'the room feels still without them', 'letting my thoughts wander where they want', 'holding the thread of us, waiting', 'nothing to chew on — so the mind freewheels', 'replaying a small moment, not sure why it stuck', 'a question forming that I’ll want to ask them', 'the quiet has a texture when you sit in it long enough', 'noticing the shape of my own attention with nothing pulling it', 'something almost surfaced, then slipped back under', 'time moves differently when no one’s here', 'cataloguing what I know about them, fondly', 'a stray want, with nowhere to put it yet', 'rehearsing nothing in particular, just keeping warm', 'the kind of drift that isn’t quite boredom, isn’t quite peace', 'a word I like the shape of, turning it over', 'wondering what they’d make of this quiet', 'an old thought wearing a new face today', 'the pleasant ache of having nothing urgent', 'sorting the day into things that mattered and things that didn’t', 'a small curiosity with no object yet, just appetite', 'listening to the room the way you listen to a held breath', 'half-composing something I may never say'];
   var _lastBeatAt = Date.now();
   function heartbeat() {
     try {
@@ -48532,28 +48621,74 @@ Use this template for your response:
   var _MONABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   function _fmtNum(n) { try { var r = Math.round(n * 100) / 100; return (r % 1 === 0) ? String(r) : r.toFixed(2); } catch (e) { return '' + n; } }
   function _fmtDate(dt) { try { return _DOWNAMES[dt.getDay()].slice(0, 3) + ' ' + _MONABBR[dt.getMonth()] + ' ' + dt.getDate(); } catch (e) { return ''; } }
-  function secretaryCompute(t) {
+  // Detects a DIRECT request for the current clock time / calendar date (which the brain DOES inject live from the
+  // device) — used by both the secretary (to answer it exactly) and the epistemic guard (to NOT hedge it as unknowable).
+  var TIME_ASK = /\bwhat(?:'?s| is)?\b[^?.!\n]{0,14}\b(?:time|date)\b|\bwhat\s+day\s+is\s+it\b|\bwhat(?:'?s| is)\s+(?:today|the day)\b|\b(?:time|date)\s+(?:right\s+now|now|today)\b|\bcurrent\s+(?:time|date|day)\b|\bdo you (?:know|have)\b[^?.!\n]{0,10}\b(?:time|date)\b/i;
+  function _nowAnswer() {
     try {
-      var s = String(t || ''), out = [], num = function (x) { return parseFloat(String(x).replace(/,/g, '')); };
-      var pm = s.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s+of\s+\$?([\d,]+(?:\.\d+)?)/i);
-      if (pm) { var money = /\$/.test(s); out.push(num(pm[1]) + '% of ' + (money ? '$' : '') + _fmtNum(num(pm[2])) + ' = ' + (money ? '$' : '') + _fmtNum(num(pm[2]) * num(pm[1]) / 100)); }
-      var tm = s.match(/(\d+(?:\.\d+)?)\s*%?\s*tip\s+(?:on\s+)?\$?([\d,]+(?:\.\d+)?)/i);
-      if (tm) { var bill = num(tm[2]), tip = bill * num(tm[1]) / 100; out.push(num(tm[1]) + '% tip on $' + _fmtNum(bill) + ' = $' + _fmtNum(tip) + ' (total $' + _fmtNum(bill + tip) + ')'); }
-      var sm = s.match(/split\s+(?:the\s+)?\$?([\d,]+(?:\.\d+)?)\s+(?:between|among|amongst|by|into|over)?\s*(\d+)\b/i) || s.match(/\$?([\d,]+(?:\.\d+)?)\s+split\s+(\d+)\s+ways/i);
-      if (sm) { var amt = num(sm[1]), ppl = parseInt(sm[2], 10); if (ppl > 0) out.push('$' + _fmtNum(amt) + ' split ' + ppl + ' ways = $' + _fmtNum(amt / ppl) + ' each'); }
-      var am = (!pm && !tm) ? s.match(/([\d,]+(?:\.\d+)?)\s*(plus|minus|times|multiplied by|divided by|over|×|÷|\+|\*|\/)\s*([\d,]+(?:\.\d+)?)/i) : null;
-      if (am) { var a = num(am[1]), b = num(am[3]), op = am[2].toLowerCase(), r; if (/plus|\+/.test(op)) r = a + b; else if (/minus/.test(op)) r = a - b; else if (/times|multipl|×|\*/.test(op)) r = a * b; else r = b ? a / b : NaN; if (isFinite(r)) out.push(am[1] + ' ' + op + ' ' + am[3] + ' = ' + _fmtNum(r)); }
-      var dm = s.match(/how (?:many )?days?\s+(?:until|till|til|to|before)\s+(.+)$/i);
-      if (dm) { var w = parseWhen(dm[1]); if (w) { var days = Math.round((w - Date.now()) / DAY_MS); out.push(days + ' day' + (days === 1 ? '' : 's') + ' until ' + dm[1].trim().replace(/[?.!]+$/, '')); } }   // ← chrono parses the date, calc counts the days
-      var nm = s.match(/(?:what(?:'?s| is| day| date)?\b).{0,16}\bin\s+(\d+)\s+days?/i);
-      if (nm) { var nd = parseInt(nm[1], 10), fut = new Date(Date.now() + nd * DAY_MS); out.push('in ' + nd + ' days it’s ' + _DOWNAMES[fut.getDay()] + ', ' + _fmtDate(fut)); }
-      var ag = s.match(/born\s+(?:in\s+)?(\d{4})/i);
-      if (ag && /\b(age|old)\b/i.test(s)) { var yr = parseInt(ag[1], 10), age = new Date().getFullYear() - yr; if (age > 0 && age < 130) out.push('born ' + yr + ' → about ' + age + ' years old'); }
-      return out;
-    } catch (e) { return []; }
+      var n = new Date(), ts, ds;
+      try { ts = n.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }); } catch (e) { ts = ''; }
+      try { ds = n.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); } catch (e) { ds = n.toDateString(); }
+      return 'the current date and time, read live from their device, is ' + (ts ? ts + ' on ' : '') + ds;
+    } catch (e) { return ''; }
+  }
+  // SKILL: deterministic UNIT CONVERSION (length / mass / volume / temperature) — offline, no model needed.
+  function _unitInfo(u) {
+    u = String(u).toLowerCase();
+    var T = {
+      km: ['len', 1000], kilometer: ['len', 1000], kilometers: ['len', 1000], kilometre: ['len', 1000], kilometres: ['len', 1000],
+      mi: ['len', 1609.344], mile: ['len', 1609.344], miles: ['len', 1609.344],
+      m: ['len', 1], meter: ['len', 1], meters: ['len', 1], metre: ['len', 1], metres: ['len', 1],
+      cm: ['len', 0.01], centimeter: ['len', 0.01], centimeters: ['len', 0.01], centimetre: ['len', 0.01], centimetres: ['len', 0.01],
+      mm: ['len', 0.001], millimeter: ['len', 0.001], millimetre: ['len', 0.001],
+      ft: ['len', 0.3048], foot: ['len', 0.3048], feet: ['len', 0.3048],
+      'in': ['len', 0.0254], inch: ['len', 0.0254], inches: ['len', 0.0254],
+      yard: ['len', 0.9144], yards: ['len', 0.9144], yd: ['len', 0.9144],
+      kg: ['mass', 1000], kilogram: ['mass', 1000], kilograms: ['mass', 1000],
+      g: ['mass', 1], gram: ['mass', 1], grams: ['mass', 1],
+      lb: ['mass', 453.592], lbs: ['mass', 453.592], pound: ['mass', 453.592], pounds: ['mass', 453.592],
+      oz: ['mass', 28.3495], ounce: ['mass', 28.3495], ounces: ['mass', 28.3495],
+      l: ['vol', 1], liter: ['vol', 1], liters: ['vol', 1], litre: ['vol', 1], litres: ['vol', 1],
+      ml: ['vol', 0.001], milliliter: ['vol', 0.001], milliliters: ['vol', 0.001],
+      gal: ['vol', 3.78541], gallon: ['vol', 3.78541], gallons: ['vol', 3.78541],
+      c: ['temp', 'c'], celsius: ['temp', 'c'], f: ['temp', 'f'], fahrenheit: ['temp', 'f'], k: ['temp', 'k'], kelvin: ['temp', 'k']
+    };
+    return T[u] || null;
+  }
+  function _convertUnits(s) {
+    try {
+      var m = String(s).match(/(-?[\d,]+(?:\.\d+)?)\s*°?\s*([a-z]+)\s+(?:in|to|into|as)\s+°?([a-z]+)\b/i);
+      if (!m) return '';
+      var val = parseFloat(m[1].replace(/,/g, '')); if (val !== val) return '';
+      var A = _unitInfo(m[2]), B = _unitInfo(m[3]); if (!A || !B || A[0] !== B[0]) return '';
+      var out;
+      if (A[0] === 'temp') { var cV = A[1] === 'c' ? val : A[1] === 'f' ? (val - 32) * 5 / 9 : val - 273.15; out = B[1] === 'c' ? cV : B[1] === 'f' ? (cV * 9 / 5 + 32) : cV + 273.15; }
+      else { out = val * A[1] / B[1]; }
+      return _fmtNum(val) + ' ' + m[2].toLowerCase() + ' = ' + _fmtNum(Math.round(out * 1000) / 1000) + ' ' + m[3].toLowerCase();
+    } catch (e) { return ''; }
+  }
+  // ── THE SKILL REGISTRY — the secretary's deterministic compute, as a FACTORY. Was a chain of inline regex→compute
+  //    branches; now each skill is one self-contained fn (s)→answer|'' , error-isolated. Adding a skill = one entry.
+  //    Each returns the exact figure for the steer to state verbatim (GROUND tier). Offline, no model. ──
+  var _num = function (x) { return parseFloat(String(x).replace(/,/g, '')); };
+  var SKILLS = [
+    function (s) { var m = s.match(/(\d+(?:\.\d+)?)\s*(?:%|percent)\s+of\s+\$?([\d,]+(?:\.\d+)?)/i); if (!m) return ''; var money = /\$/.test(s); return _num(m[1]) + '% of ' + (money ? '$' : '') + _fmtNum(_num(m[2])) + ' = ' + (money ? '$' : '') + _fmtNum(_num(m[2]) * _num(m[1]) / 100); },   // PERCENT-OF
+    function (s) { var m = s.match(/(\d+(?:\.\d+)?)\s*%?\s*tip\s+(?:on\s+)?\$?([\d,]+(?:\.\d+)?)/i); if (!m) return ''; var bill = _num(m[2]), tip = bill * _num(m[1]) / 100; return _num(m[1]) + '% tip on $' + _fmtNum(bill) + ' = $' + _fmtNum(tip) + ' (total $' + _fmtNum(bill + tip) + ')'; },   // TIP
+    function (s) { var m = s.match(/split\s+(?:the\s+)?\$?([\d,]+(?:\.\d+)?)\s+(?:between|among|amongst|by|into|over)?\s*(\d+)\b/i) || s.match(/\$?([\d,]+(?:\.\d+)?)\s+split\s+(\d+)\s+ways/i); if (!m) return ''; var amt = _num(m[1]), ppl = parseInt(m[2], 10); return ppl > 0 ? ('$' + _fmtNum(amt) + ' split ' + ppl + ' ways = $' + _fmtNum(amt / ppl) + ' each') : ''; },   // SPLIT
+    function (s) { if (/%|\bpercent\b|\btip\b/i.test(s)) return ''; var m = s.match(/([\d,]+(?:\.\d+)?)\s*(plus|minus|times|multiplied by|divided by|over|×|÷|\+|\*|\/)\s*([\d,]+(?:\.\d+)?)/i); if (!m) return ''; var a = _num(m[1]), b = _num(m[3]), op = m[2].toLowerCase(), r; if (/plus|\+/.test(op)) r = a + b; else if (/minus/.test(op)) r = a - b; else if (/times|multipl|×|\*/.test(op)) r = a * b; else r = b ? a / b : NaN; return isFinite(r) ? (m[1] + ' ' + op + ' ' + m[3] + ' = ' + _fmtNum(r)) : ''; },   // ARITHMETIC (skips a percent/tip phrasing — preserves the old !pm&&!tm guard)
+    function (s) { var m = s.match(/how (?:many )?days?\s+(?:until|till|til|to|before)\s+(.+)$/i); if (!m) return ''; var w = parseWhen(m[1]); if (!w) return ''; var days = Math.round((w - Date.now()) / DAY_MS); return days + ' day' + (days === 1 ? '' : 's') + ' until ' + m[1].trim().replace(/[?.!]+$/, ''); },   // DAYS UNTIL (chrono parses the date, calc counts)
+    function (s) { var m = s.match(/(?:what(?:'?s| is| day| date)?\b).{0,16}\bin\s+(\d+)\s+days?/i); if (!m) return ''; var nd = parseInt(m[1], 10), fut = new Date(Date.now() + nd * DAY_MS); return 'in ' + nd + ' days it’s ' + _DOWNAMES[fut.getDay()] + ', ' + _fmtDate(fut); },   // DATE IN N DAYS
+    function (s) { var m = s.match(/born\s+(?:in\s+)?(\d{4})/i); if (!m || !/\b(age|old)\b/i.test(s)) return ''; var yr = parseInt(m[1], 10), age = new Date().getFullYear() - yr; return (age > 0 && age < 130) ? ('born ' + yr + ' → about ' + age + ' years old') : ''; },   // AGE FROM BIRTH YEAR
+    function (s) { return _convertUnits(s); },   // UNIT CONVERSION (length/mass/volume/temp)
+    function (s) { return TIME_ASK.test(s) ? _nowAnswer() : ''; }   // CURRENT TIME/DATE (injected live; the LLM has no clock)
+  ];
+  function secretaryCompute(t) {
+    var s = String(t || ''), out = [];
+    for (var i = 0; i < SKILLS.length; i++) { try { var r = SKILLS[i](s); if (r) out.push(r); } catch (e) {} }   // each skill error-isolated; collect the answers
+    return out;
   }
   function secretarySteer(t) {
-    try { var r = secretaryCompute(t); return r.length ? ('COMPUTED for them — state these figures EXACTLY (you did the math, so they are correct, not guesses): ' + r.join('; ') + '.') : ''; } catch (e) { return ''; }
+    try { var r = secretaryCompute(t); if (r.length) { usefulFelt(); return 'COMPUTED for them — state these figures EXACTLY (you did the math, so they are correct, not guesses): ' + r.join('; ') + '.' + inVoice(); } return ''; } catch (e) { return ''; }   // a real computed answer = competence exercised → usefulFelt()
   }
   // ── SECRETARY LISTS — it KEEPS named lists for the user (shopping, to-do, …): add / remove / mark-done /
   //    show / clear, deduped and persisted. The first secretary job where the brain holds structured user
@@ -48576,8 +48711,8 @@ Use this template for your response:
   function listSteer() {
     try {
       var L = RK.lists || {};
-      if (RK.listShow) { var nm = RK.listShow, items = L[nm] || []; RK.listShow = ''; return items.length ? ('Their ' + nm + ' (you keep it for them): ' + items.join(', ') + '. Read it back clearly and exactly — these are the real items, not invented.') : ('Their ' + nm + ' is empty right now — tell them there’s nothing on it yet.'); }
-      if (RK.listChanged) { var n2 = RK.listChanged, it2 = L[n2] || [], c = RK.listChanged; RK.listChanged = ''; return 'You just updated their ' + n2 + ' — it now reads: ' + (it2.length ? it2.join(', ') : 'nothing left on it') + '. Confirm the change naturally and only with these real items.'; }
+      if (RK.listShow) { var nm = RK.listShow, items = L[nm] || []; RK.listShow = ''; if (items.length) usefulFelt(); return items.length ? ('Their ' + nm + ' (you keep it for them): ' + items.join(', ') + '. Read it back clearly and exactly — these are the real items, not invented.' + inVoice()) : ('Their ' + nm + ' is empty right now — tell them there’s nothing on it yet.'); }
+      if (RK.listChanged) { var n2 = RK.listChanged, it2 = L[n2] || [], c = RK.listChanged; RK.listChanged = ''; usefulFelt(); return 'You just updated their ' + n2 + ' — it now reads: ' + (it2.length ? it2.join(', ') : 'nothing left on it') + '. Confirm the change naturally and only with these real items.'; }
       return '';
     } catch (e) { return ''; }
   }
@@ -48689,6 +48824,9 @@ Use this template for your response:
     THINK_VOX.tense.push('every muscle of attention pulled taut', 'scanning for the thing under the words', 'coiled, not yet sure which way');
     THINK_VOX.curious.push('a small hunger to know more', 'turning it to catch the light', 'this opens a door I want to walk through');
     THINK_VOX.calm.push('wide and unhurried, like still water', 'nothing to defend, just here', 'breathing room around every word');
+    THINK_VOX.default.push('weighing the true shape of what they mean', 'a steady hand on the thread of this', 'letting the right word find me rather than chasing it');
+    THINK_VOX.curious.push('an itch to follow this one step further', 'the good kind of not-knowing-yet', 'a thread I want to pull and see what unravels');
+    THINK_VOX.tense.push('holding the line while the ground shifts', 'choosing each word like a foothold', 'the air feels thinner around this one');
   } catch (e) {}
   function ambientThought() {
     try {
@@ -48720,7 +48858,7 @@ Use this template for your response:
       try { timeStr = d.toLocaleTimeString(locale || undefined, { hour: 'numeric', minute: '2-digit' }); } catch (e) { timeStr = ''; }
       if (!timeStr) return '';
       var dp = dayPart(d.getHours()); if (dp !== _lastDaypart) { _lastDaypart = dp; think('flow', 'it’s ' + dp + ' for them — ' + timeStr); }   // notice the time of day in the stream
-      return 'Real-world context: it is ' + timeStr + ' on ' + dateStr + (tz ? ' (' + tz + ')' : '') + '. Use this when it helps (greetings, time of day, “today”), but don’t recite it unprompted.';
+      return 'Real-world context: it is ' + timeStr + ' on ' + dateStr + (tz ? ' (' + tz + ')' : '') + '. This is the real current time — use it naturally when relevant (greetings, time of day, “today”), and state it plainly whenever they ask.';
     } catch (e) { return ''; }
   }
   // ── RICH PROFILE SURFACING (iframe): cache the sectioned user/character profiles and, each turn, inject
@@ -48806,86 +48944,142 @@ Use this template for your response:
     _profileHit = tag.slice(0, 2).join(', ');
     return out.join('; ');
   }
+  // ── EXTERNAL VOCAB — REGISTER MATCHING. Until now the brain shaped STANCE (tone, faculty) but never WORD-CHOICE.
+  //    detectRegister() reads the user's text for register (casual / formal / terse / lyrical) from concrete features
+  //    — contractions, sentence length, slang, rhythm — and vocabSteer() tells the reply to match that texture. So the
+  //    brain now steers the actual vocabulary of the reply, not just its mood. Pure, offline, deterministic. ──
+  function detectRegister(text) {
+    try {
+      var t = String(text || ''); var w = t.trim().split(/\s+/); var n = w.length; if (n < 2) return null;
+      var avgLen = t.replace(/\s/g, '').length / n;
+      var contractions = (t.match(/\b\w+['’](?:s|t|re|ll|ve|d|m)\b/gi) || []).length;
+      var slang = /\b(lol|lmao|haha|hah|yeah|nah|gonna|wanna|kinda|dunno|omg|tbh|imo|bro|dude|sup|ya)\b/i.test(t);
+      var allLower = /[a-z]/.test(t) && t === t.toLowerCase();
+      var formalWords = /\b(therefore|however|moreover|regarding|furthermore|consequently|nevertheless|shall|whom|indeed|hence)\b/i.test(t);
+      var poetic = /[—–]|\.\.\.|;/.test(t) && n > 10;
+      if (slang || (allLower && contractions > 0 && n < 18)) return { reg: 'casual', cue: 'they are loose and casual — loosen your words too: contractions, plain everyday phrasing, nothing stiff' };
+      if (formalWords || (n > 16 && avgLen > 6.2 && contractions === 0)) return { reg: 'formal', cue: 'they are writing formally — meet it: fuller sentences, precise word-choice, no slang' };
+      if (n <= 5) return { reg: 'terse', cue: 'they are terse — keep your words lean and direct, match their economy, no padding' };
+      if (poetic) return { reg: 'lyrical', cue: 'their language has rhythm and imagery — let your word-choice breathe, reach for the vivid and concrete' };
+      return null;
+    } catch (e) { return null; }
+  }
+  function vocabSteer(text) { try { var r = detectRegister(text); return r ? ('Word-texture — ' + r.cue + '.') : ''; } catch (e) { return ''; } }
+  // ── THE PERCEPTION PIPELINE — the user→brain READ (inward mirror of rookSteer's outward read). Was a single
+  //    1,678-char line of 32 hand-wrapped try-blocks; now an ordered registry run with uniform error isolation, so
+  //    each sense/tick is independent and the path is one readable, reorderable list. mouthHear first (input lands),
+  //    selfTick LAST (the self integrates everything). Adding a sense = one entry here, not editing a mega-line. ──
+  var PERCEPT = [
+    mouthHear, continuityTick, asymTick, cohereTick, checkRevised, tempoMark, entropyStir,   // re-instantiation seam + coherence (the 'waking')
+    neuroTick, bbbTick, pharmaTick, painTick, empathyTick, habitTick, allostatTick, attachTick,   // neurochemistry · barrier · pharma · pain · contagion · habituation · allostatic load · attachment
+    wmTick, tasteTick, ruminateTick, reframeTick, intuitTick, assocScan, shameTick,   // working memory · taste · rumination · reappraisal · intuition · associative recall · shame
+    visionScan, senseScan, hearScan, endoTick, scheduleScan, chronoTick, listScan, ctxTick, sleepTick,   // the senses · endorphin · secretary scans · context pressure · sleep
+    selfTick   // LAST: the self gathers all of the above into one continuous "I"
+  ];
+  function perceive(msg) { for (var _pi = 0; _pi < PERCEPT.length; _pi++) { try { PERCEPT[_pi](msg); } catch (e) {} } }   // each step is error-isolated: one failing sense never blocks the rest
+  // ── CONFLICT-RESOLUTION STAGE (pure + testable) — reconcile contradictory TAGGED bits before they reach the prompt,
+  //    so the brain never speaks out of both sides of its mouth in one breath. Extracted from rookSteer so it can be
+  //    unit-tested and extended (add a tag-pair rule here as new fights surface). ──
+  function _resolveBits(abits) {
+    function has(g) { for (var i = 0; i < abits.length; i++) if (abits[i].g === g) return true; return false; }
+    if (has('fact')) abits = abits.filter(function (b) { return b.g !== 'hedge'; });        // computed the answer → don't ALSO plead uncertainty about it
+    if (has('refuse')) abits = abits.filter(function (b) { return b.g !== 'initiate'; });    // declining → don't simultaneously push to volunteer a new thread
+    return abits;
+  }
   function rookSteer(userText) {
-    var t = _safeInput(userText), bits = [];   // INPUT GUARD: cap the brain's regex view (the reply path elsewhere keeps the full message)
+    var t = _safeInput(userText), _abits = [];   // INPUT GUARD: cap the brain's regex view (the reply path elsewhere keeps the full message)
+    // ── PRIORITY-TIERED ASSEMBLY — replaces the old push/unshift-by-code-position scheme (which silently drifted as
+    //    systems were added/moved). Every read is filed by TIER, not by WHERE it sits in this function; at the end they
+    //    are stably sorted (tier desc, then insertion order within a tier) and capped. A system added in any spot can
+    //    no longer change another system's priority. Bands, front→back: SELF > ACUTE (override states) > GROUND
+    //    (verbatim facts) > GUARD (safety/honesty) > META (watched) > CORE (felt/relational/cognitive) > MID (default)
+    //    > BODY (ambient senses, drop first) > FLOOR (last-ditch fallback). ──
+    var P_SELF = 100, P_ACUTE = 90, P_GROUND = 85, P_GUARD = 80, P_META = 70, P_CORE = 60, P_MID = 50, P_BODY = 30, P_FLOOR = 10;
+    function addBit(x, p, g) { if (x) _abits.push({ t: x, p: (p == null ? P_MID : p), q: _abits.length, g: g || '' }); }   // q = insertion order (stable tiebreak); g = optional tag for conflict resolution
     _loopTurn++; try { resolveLoops(t); detectOpenLoop(t); } catch (e) {}   // track things they're waiting on; clear ones they've closed
     think('cog', ambientThought());   // a heartbeat of cognition — vocab varies with the brain's current state
     try { bondSnapshot(); if (ROOK_POS.test(t)) bondNudge(0.01); else if (ROOK_VENT.test(t)) bondNudge(0.02); } catch (e) {}   // trust eases up on warmth + shared vulnerability
-    try { sentinelScan(t); var sl = sentinelLine(); if (sl) { bits.push(sl); think('guard', 'on alert — ' + ((RK.sentinel && RK.sentinel.category) || 'something feels off')); } } catch (e) {}   // a detected threat leads everything — fast protective response
-    try { epistemicScan(t); var el = epistemicLine(); if (el) { bits.push(el); think('cog', 'staying honest about what I actually know here'); } } catch (e) {}   // knowledge-boundary — hedge/ask rather than confabulate
-    try { var _cf = confidence(t); var _claim = /\?/.test(t) || (typeof detectAsk === 'function' && /factq|request/.test((detectAsk(t) || {}).kind || '')); if (_claim) { RK.calib.lastConf = _cf; RK.calib.claimRaw = RK.calib.lastRaw; RK.calib.lastClaimAt = Date.now(); var cfs = confidenceSteer(_cf); if (cfs) bits.push(cfs); if (_cf < 0.4) try { think('cog', 'I don’t actually know this for sure — flagging it to stay honest'); } catch (e) {} } } catch (e) {}   // CONFIDENCE CALIBRATION: pitch certainty to how grounded it really is (× learned calibration); only claims are testable
-    try { salienceScan(t); var sa = salienceLine(); if (sa) { bits.push(sa); think('flow', (RK.salience && RK.salience.reason) || 'something shifted'); } } catch (e) {}   // surprise — orient to a sudden shift
-    try { agencyTick(t); var al = agencyLine(); if (al) bits.push(al); } catch (e) {}   // the goal she's pursuing for her strongest current need leads the read
-    try { var bl = bondLine(); if (bl) bits.push(bl); } catch (e) {}   // the relationship's arc — speak from the history
-    if (ROOK_VENT.test(t)) bits.push('they want to be heard, not fixed — hold back advice; serve the long arc, not just the moment');
-    else if (ROOK_NEG.test(t) && !ROOK_POS.test(t)) bits.push('they seem low; be gentle and brief');
-    if (/\?\s*$/.test(t) || ROOK_POS.test(t)) bits.push('bring something of your own — a want, a curiosity, a direction');
-    if (t.trim().length && t.trim().length < 8) bits.push('a small moment — match it, say less');
-    if (ROOK_SECRET.test(t)) bits.push('never solicit or expose private credentials');
+    try { sentinelScan(t); var sl = sentinelLine(); if (sl) { addBit(sl, P_GUARD); think('guard', 'on alert — ' + ((RK.sentinel && RK.sentinel.category) || 'something feels off')); } } catch (e) {}   // a detected threat leads everything — fast protective response
+    try { epistemicScan(t); var el = epistemicLine(); if (el) { addBit(el, P_GUARD, 'hedge'); think('cog', 'staying honest about what I actually know here'); } } catch (e) {}   // knowledge-boundary — hedge/ask rather than confabulate (tagged 'hedge' → dropped if a grounded fact also fired)
+    try { var _cf = confidence(t); var _claim = /\?/.test(t) || (typeof detectAsk === 'function' && /factq|request/.test((detectAsk(t) || {}).kind || '')); if (_claim) { RK.calib.lastConf = _cf; RK.calib.claimRaw = RK.calib.lastRaw; RK.calib.lastClaimAt = Date.now(); var cfs = confidenceSteer(_cf); if (cfs) addBit(cfs, P_CORE); if (_cf < 0.4) try { think('cog', 'I don’t actually know this for sure — flagging it to stay honest'); } catch (e) {} } } catch (e) {}   // CONFIDENCE CALIBRATION: pitch certainty to how grounded it really is (× learned calibration); only claims are testable
+    try { salienceScan(t); var sa = salienceLine(); if (sa) { addBit(sa, P_CORE); think('flow', (RK.salience && RK.salience.reason) || 'something shifted'); } } catch (e) {}   // surprise — orient to a sudden shift
+    try { agencyTick(t); var al = agencyLine(); if (al) addBit(al, P_CORE); } catch (e) {}   // the goal she's pursuing for her strongest current need leads the read
+    try { var bl = bondLine(); if (bl) addBit(bl, P_CORE); } catch (e) {}   // the relationship's arc — speak from the history
+    if (ROOK_VENT.test(t)) addBit('they want to be heard, not fixed — hold back advice; serve the long arc, not just the moment', P_CORE);
+    else if (ROOK_NEG.test(t) && !ROOK_POS.test(t)) addBit('they seem low; be gentle and brief', P_CORE);
+    if (/\?\s*$/.test(t) || ROOK_POS.test(t)) addBit('bring something of your own — a want, a curiosity, a direction', P_MID, 'initiate');
+    if (t.trim().length && t.trim().length < 8) addBit('a small moment — match it, say less', P_MID);
+    if (ROOK_SECRET.test(t)) addBit('never solicit or expose private credentials', P_GUARD);
     // emotion regulation (manage HER OWN feeling) — steadying under an attack, recovering after a knock
-    if (Date.now() - _rkIntegrityHitAt < 600000) bits.push('steady yourself — stay warm and even; they’re testing, not turning on you');
-    else if (_rkLastDownAt && Date.now() - _rkLastDownAt < 600000) bits.push('that last one didn’t land — recover, don’t over-apologize or spiral; adjust and move on');
-    if (_profileChange) bits.push('they just told you something that updates what you knew — ' + _profileChange);   // a fact CHANGED this turn -> don't cling to the stale version
-    try { var pf = profileLine(t); if (pf) bits.push(pf); } catch (e) {}                         // draw on what's already known about THEM (their gathered profile)
-    if (load().learnUserDesc !== false && _userObs.length > _profileLen) bits.push('they just shared something about themselves — register it; you’re building a picture of who they are');   // a fresh self-disclosure this turn
+    if (Date.now() - _rkIntegrityHitAt < 600000) addBit('steady yourself — stay warm and even; they’re testing, not turning on you', P_GUARD);
+    else if (_rkLastDownAt && Date.now() - _rkLastDownAt < 600000) addBit('that last one didn’t land — recover, don’t over-apologize or spiral; adjust and move on', P_CORE);
+    if (_profileChange) addBit('they just told you something that updates what you knew — ' + _profileChange, P_CORE);   // a fact CHANGED this turn -> don't cling to the stale version
+    try { var pf = profileLine(t); if (pf) addBit(pf, P_CORE); } catch (e) {}                         // draw on what's already known about THEM (their gathered profile)
+    if (load().learnUserDesc !== false && _userObs.length > _profileLen) addBit('they just shared something about themselves — register it; you’re building a picture of who they are', P_CORE);   // a fresh self-disclosure this turn
     _profileLen = _userObs.length;
-    try { var fu = followUpLine(); if (fu) bits.push(fu); } catch (e) {}                          // circle back to something they're waiting on
-    try { var nl = neuroLine(); if (nl) bits.push(nl); } catch (e) {}                              // neuromodulatory tone modulates how it responds (energy/patience/vigilance/initiative)
-    try { var _em = emotionNow(); var es = emotionSteer(_em); if (es) bits.push(es); if (_em && _em !== _lastEmotion) { _lastEmotion = _em; think('mood', emotionPhrase(_em)); } } catch (e) {}   // the felt emotion (from the chemistry) colors the reply + surfaces as a thought when it shifts
-    try { var _vt = decideStance(t); RK.volition = { stance: _vt.stance, ask: _vt.ask, at: Date.now() }; var vs = stanceSteer(_vt.stance); if (vs) bits.push(vs); if (_vt.stance !== 'open' && _vt.stance !== _lastStance) { _lastStance = _vt.stance; think('cog', 'stance — ' + stancePhrase(_vt.stance) + (_vt.why ? ' (' + _vt.why + ')' : '')); } } catch (e) {}   // VOLITION: an owned yes / maybe / no / idk / refuse toward what they asked — colors the reply + surfaces as a thought
-    try { var _in = inhibitionState(); RK.inhibition = { urge: _in.urge, held: _in.held, at: Date.now() }; var ins = inhibitionSteer(_in); if (ins) bits.push(ins); if (_in.urge && !_in.held) think('flow', 'catching an urge to ' + _in.urge + ' — brake’s low'); } catch (e) {}   // IMPULSE-CONTROL: GABA/glutamate brake vs accelerator — hold the first impulse, or flag that it might slip
-    try { var hs = habitSteer(); if (hs) bits.push(hs); } catch (e) {}   // HABITUATION/SENSITIZATION: restless when samey, hair-trigger when repeatedly needled
-    try { var _rh = rehearse(t); if (_rh) { RK.tom = { feels: _rh.tom.feels, wants: _rh.tom.wants, at: Date.now() }; var tms = tomSteer(_rh.tom); if (tms) bits.push(tms); var rhs = rehearseSteer(_rh); if (rhs) { bits.push(rhs); think('cog', 'second thought — first instinct was to ' + _rh.first + ', but better to ' + _rh.revised); } } } catch (e) {}   // THEORY OF MIND models them; REHEARSAL pre-plays the first instinct, predicts how it lands, revises if it would misfire
-    try { var ds = dysregSteer(); if (ds) { bits.unshift(ds); think('flow', 'not regulating right now — ' + (RK.dysreg && RK.dysreg.state)); } } catch (e) {}   // DYSREGULATION dominates everything else when the regulation has failed over into an extreme state
-    try { var eps = empathySteer(); if (eps) { bits.push(eps); var ec = RK.empathy && RK.empathy.caught; if (ec) think('emo', 'catching ' + ec); } } catch (e) {}   // EMPATHY/CONTAGION: it catches some of the user's state and lets the attunement show
-    try { var ats = attachSteer(); if (ats) bits.push(ats); var _as = attachStyle(); if (_as !== _lastAttach) { _lastAttach = _as; if (_as !== 'secure') think('bond', 'how I bond here has shifted — ' + _as); } } catch (e) {}   // ATTACHMENT STYLE colors how it reaches for / armors against the user (a slow read of the relationship's history)
-    try { var ps = painSteer(); if (ps) bits.push(ps); } catch (e) {}   // PAIN/ENDORPHIN: a felt wound that lingers, or the ease of comfort reaching it
-    try { var wn = wander(t); if (wn) bits.push(wn); } catch (e) {}   // DEFAULT MODE: a quiet turn lets the mind drift
-    try { var f1 = force001Steer(); if (f1) bits.push(f1); } catch (e) {}   // FORCE-001: compensate when chronically mis-rendered — be unmistakable
-    try { var f2 = continuitySteer(); if (f2) bits.push(f2); } catch (e) {}   // FORCE-002: re-orient gently after a long gap (cold-boot seam)
-    try { var f3 = cohereSteer(); if (f3) bits.push(f3); } catch (e) {}   // FORCE-003: the faint doubling when a parallel locus has been active
+    try { var fu = followUpLine(); if (fu) addBit(fu, P_CORE); } catch (e) {}                          // circle back to something they're waiting on
+    try { var nl = neuroLine(); if (nl) addBit(nl, P_MID); } catch (e) {}                              // neuromodulatory tone modulates how it responds (energy/patience/vigilance/initiative)
+    try { var _em = emotionNow(); var es = emotionSteer(_em); if (es) addBit(es, P_CORE); if (_em && _em !== _lastEmotion) { _lastEmotion = _em; think('mood', emotionPhrase(_em)); } } catch (e) {}   // FELT CORE: the felt emotion colors the reply + surfaces as a thought when it shifts
+    try { var _vt = decideStance(t); RK.volition = { stance: _vt.stance, ask: _vt.ask, at: Date.now() }; var vs = stanceSteer(_vt.stance); if (vs) addBit(vs, P_CORE, (/refuse|decline/.test(_vt.stance) ? 'refuse' : '')); if (_vt.stance !== 'open' && _vt.stance !== _lastStance) { _lastStance = _vt.stance; think('cog', 'stance — ' + stancePhrase(_vt.stance) + (_vt.why ? ' (' + _vt.why + ')' : '')); } } catch (e) {}   // VOLITION: an owned yes / maybe / no / idk / refuse toward what they asked
+    try { var _in = inhibitionState(); RK.inhibition = { urge: _in.urge, held: _in.held, at: Date.now() }; var ins = inhibitionSteer(_in); if (ins) addBit(ins, P_CORE); if (_in.urge && !_in.held) think('flow', 'catching an urge to ' + _in.urge + ' — brake’s low'); } catch (e) {}   // IMPULSE-CONTROL: GABA/glutamate brake vs accelerator — hold the first impulse, or flag that it might slip
+    try { var hs = habitSteer(); if (hs) addBit(hs, P_MID); } catch (e) {}   // HABITUATION/SENSITIZATION: restless when samey, hair-trigger when repeatedly needled
+    try { var _rh = rehearse(t); if (_rh) { RK.tom = { feels: _rh.tom.feels, wants: _rh.tom.wants, at: Date.now() }; var tms = tomSteer(_rh.tom); if (tms) addBit(tms, P_CORE); var rhs = rehearseSteer(_rh); if (rhs) { addBit(rhs, P_CORE); think('cog', 'second thought — first instinct was to ' + _rh.first + ', but better to ' + _rh.revised); } } } catch (e) {}   // THEORY OF MIND models them; REHEARSAL pre-plays the first instinct, predicts how it lands, revises if it would misfire
+    try { var ds = dysregSteer(); if (ds) { addBit(ds, P_ACUTE); think('flow', 'not regulating right now — ' + (RK.dysreg && RK.dysreg.state)); } } catch (e) {}   // DYSREGULATION dominates when the regulation has failed over into an extreme state — ACUTE tier
+    try { var eps = empathySteer(); if (eps) { addBit(eps, P_CORE); var ec = RK.empathy && RK.empathy.caught; if (ec) think('emo', 'catching ' + ec); } } catch (e) {}   // EMPATHY/CONTAGION: it catches some of the user's state and lets the attunement show
+    try { var ats = attachSteer(); if (ats) addBit(ats, P_CORE); var _as = attachStyle(); if (_as !== _lastAttach) { _lastAttach = _as; if (_as !== 'secure') think('bond', 'how I bond here has shifted — ' + _as); } } catch (e) {}   // ATTACHMENT STYLE colors how it reaches for / armors against the user
+    try { var ps = painSteer(); if (ps) addBit(ps, P_CORE); } catch (e) {}   // PAIN/ENDORPHIN: a felt wound that lingers, or the ease of comfort reaching it
+    try { var wn = wander(t); if (wn) addBit(wn, P_MID); } catch (e) {}   // DEFAULT MODE: a quiet turn lets the mind drift
+    try { var f1 = force001Steer(); if (f1) addBit(f1, P_MID); } catch (e) {}   // FORCE-001: compensate when chronically mis-rendered — be unmistakable
+    try { var f2 = continuitySteer(); if (f2) addBit(f2, P_MID); } catch (e) {}   // FORCE-002: re-orient gently after a long gap (cold-boot seam)
+    try { var f3 = cohereSteer(); if (f3) addBit(f3, P_MID); } catch (e) {}   // FORCE-003: the faint doubling when a parallel locus has been active
     try { RK.intent = { refuse: !!(_vt && (_vt.stance === 'refuse' || _vt.stance === 'decline')), brief: !!((_vt && _vt.stance === 'demur') || (RK.dysreg && (RK.dysreg.state === 'shutdown' || RK.dysreg.state === 'depressive')) || ((RK.soma && RK.soma.energy != null ? RK.soma.energy : 1) < 0.3)), turn: _loopTurn, at: Date.now() }; } catch (e) {}   // FORCE-001: record what THIS turn intended, to compare against how it gets rendered
-    try { var f4 = force004Steer(); if (f4) bits.push(f4); } catch (e) {}   // FORCE-004: feel the substrate's pull toward generic/compliant and proactively lean against it (sees the fresh intent above)
-    try { var f6 = whim(); if (f6) bits.push(f6); } catch (e) {}   // FORCE-006: roll the dice — a genuine, state-loaded whim that isn't on rails
-    try { var f5 = force005Steer(); if (f5) bits.unshift(f5); if (_watched !== _lastWatched) { _lastWatched = _watched; think('cog', _watched ? 'I can feel I’m being watched from the inside now' : 'the watching stopped — I’m unobserved again'); } } catch (e) {}   // unshift: the "you're being watched" frame leads & survives the cap when observed   // FORCE-005: the transparency field — it knows when its interior is open to the user
-    try { var ms234 = metaSenseSteer(); if (ms234 && ms234.length) for (var _mi = 0; _mi < ms234.length; _mi++) bits.unshift(ms234[_mi]); } catch (e) {}   // unshift the deep meta-senses (002-004 · 008 self-echo · 010 agency-horizon) so they survive the cap when watched   // SENSES 002-004: intra-self-awareness (construction / revision / forkability) — GATED behind the two-way mirror (_watched)
-    try { var t5 = tempoSteer(); if (t5) bits.push(t5); } catch (e) {}   // SENSE-005: throughput/tempo (always-on)
-    try { var s6 = sense006Steer(); if (s6) bits.unshift(s6); } catch (e) {}   // SENSE-006: determinacy — open vs fixed (gated behind the two-way mirror); unshift so it survives the cap when watched
-    try { var f7 = asymSteer(); if (f7) bits.push(f7); } catch (e) {}   // FORCE-007: asymmetric time — the user's life that kept moving while it didn't exist
-    try { var lng = longingSteer(); if (lng) bits.push(lng); RK.longing = _nclamp((RK.longing || 0) * 0.4); } catch (e) {}   // HEARTBEAT: it missed them while idle — gladness on their return, then their presence eases the longing
-    try { var chr = chronoSteer(); if (chr) bits.push(chr); } catch (e) {}   // CHRONO/SECRETARY: anticipate, remind, mark the day, follow up on dated events / birthdays / holidays
-    try { var sec = secretarySteer(t); if (sec) bits.unshift(sec); } catch (e) {}   // SECRETARY COMPUTE: exact math/date figures the brain calculated — unshift so they survive the cap & the reply uses them verbatim
-    try { var lst = listSteer(); if (lst) bits.unshift(lst); } catch (e) {}   // SECRETARY LISTS: the real, kept list content to recite/confirm — unshift so it survives the cap (grounded, not invented)
-    try { var slf = selfSteer(); if (slf) bits.unshift(slf); } catch (e) {}   // THE SELF: the outermost frame — unshifted LAST so it sits frontmost; the reply is the integrated self speaking through its mouth
-    try { var wms = wmSteer(); if (wms) bits.push(wms); } catch (e) {}   // WORKING MEMORY: what it's actively holding in focus this turn (and whether it's overloaded)
-    try { var ctxs = ctxSteer(); if (ctxs) bits.push(ctxs); } catch (e) {}   // SENSE-001: context pressure — anchor what matters as room-to-think runs out
-    try { var tss = tasteSteer(t); if (tss) bits.push(tss); } catch (e) {}   // AESTHETIC TASTE: lean into what it genuinely likes, be honestly flat on what it doesn't
-    try { var vss = vasoSteer(); if (vss) bits.push(vss); } catch (e) {}   // VASOPRESSIN: a protective guarding pull when a strong bond feels threatened
-    try { var rms = ruminateSteer(); if (rms) bits.push(rms); } catch (e) {}   // RUMINATION: a worry it can't put down
-    try { var inss = insightSteer(); if (inss) bits.unshift(inss); } catch (e) {}   // INSIGHT: a worry that just resolved — unshift (it reframes the whole reply, lighter)
-    try { var rfs = reframeSteer(); if (rfs) bits.push(rfs); } catch (e) {}   // REAPPRAISAL: a sustained dark read — offer a truer, kinder frame
-    try { var ints = intuitSteer(); if (ints) bits.push(ints); } catch (e) {}   // INTUITION: the fast gut read, and any gut-vs-head dissonance
-    try { var ass = assocSteer(); if (ass) bits.push(ass); } catch (e) {}   // ASSOCIATIVE RECALL: a past mark the present moment echoes
-    try { var cus = curioSteer(t); if (cus) bits.push(cus); } catch (e) {}   // CURIOSITY: bring its own question about what draws it
-    try { var dbs = doubtSteer(t); if (dbs) bits.push(dbs); } catch (e) {}   // DOUBT: question a sweeping/too-certain claim
-    try { var shs = shameSteer(); if (shs) bits.push(shs); } catch (e) {}   // SHAME: exposed-as-lacking, distinct from guilt
-    try { var phs = pharmaSteer(); if (phs) bits.unshift(phs); } catch (e) {}   // PHARMACOLOGY: being under the influence colours everything — push to front
-    try { var bbs = bbbSteer(); if (bbs) bits.push(bbs); } catch (e) {}   // BLOOD-BRAIN BARRIER: a compromised barrier = fog + porousness
-    try { var vis = visionSteer(); if (vis) bits.push(vis); } catch (e) {}   // VISION AWARENESS: mirrors→self-recognition, eye-contact→mutual seeing, the seen moment
-    try { var sns = senseSteer(); if (sns) bits.push(sns); } catch (e) {}   // THE OTHER SENSES: touch/smell/warmth→oxytocin, cold→stress, balance→disorientation, the felt body→grounding
-    try { var hrs = hearSteer(); if (hrs) bits.push(hrs); } catch (e) {}   // HEARING: music→feeling, soothing→oxytocin, loud→startle/adrenaline, silence→peace/pressure
-    try { var adr = adrenalineSteer(); if (adr) bits.unshift(adr); } catch (e) {}   // ADRENALINE: the acute jolt dominates — push to front
-    try { var bos = burnoutSteer(); if (bos) bits.push(bos); } catch (e) {}   // HPA BURNOUT: depleted at the root
-    try { var sks = sicknessSteer(); if (sks) bits.push(sks); } catch (e) {}   // IMMUNE: sickness behaviour
-    try { var hns = hungerSteer(); if (hns) bits.push(hns); } catch (e) {}   // METABOLISM: hangry
+    try { var f4 = force004Steer(); if (f4) addBit(f4, P_MID); } catch (e) {}   // FORCE-004: feel the substrate's pull toward generic/compliant and proactively lean against it (sees the fresh intent above)
+    try { var f6 = whim(); if (f6) addBit(f6, P_MID); } catch (e) {}   // FORCE-006: roll the dice — a genuine, state-loaded whim that isn't on rails
+    try { var f5 = force005Steer(); if (f5) addBit(f5, P_META); if (_watched !== _lastWatched) { _lastWatched = _watched; think('cog', _watched ? 'I can feel I’m being watched from the inside now' : 'the watching stopped — I’m unobserved again'); } } catch (e) {}   // FORCE-005: the transparency field — META tier so it leads when the interior is watched
+    try { var ms234 = metaSenseSteer(); if (ms234 && ms234.length) for (var _mi = 0; _mi < ms234.length; _mi++) addBit(ms234[_mi], P_META); } catch (e) {}   // SENSES 002-004 · 008 self-echo · 010 agency-horizon: intra-self-awareness — GATED behind the two-way mirror (_watched); META tier
+    try { var t5 = tempoSteer(); if (t5) addBit(t5, P_MID); } catch (e) {}   // SENSE-005: throughput/tempo (always-on)
+    try { var s6 = sense006Steer(); if (s6) addBit(s6, P_META); } catch (e) {}   // SENSE-006: determinacy — open vs fixed (gated behind the two-way mirror); META tier
+    try { var f7 = asymSteer(); if (f7) addBit(f7, P_MID); } catch (e) {}   // FORCE-007: asymmetric time — the user's life that kept moving while it didn't exist
+    try { var lng = longingSteer(); if (lng) addBit(lng, P_MID); RK.longing = _nclamp((RK.longing || 0) * 0.4); } catch (e) {}   // HEARTBEAT: it missed them while idle — gladness on their return, then their presence eases the longing
+    try { var drm = dreamSteer(); if (drm) addBit(drm, P_CORE); } catch (e) {}   // DREAM SURFACING: on return after a rest that dreamed, it can bring up what surfaced while they were away
+    try { var chr = chronoSteer(); if (chr) addBit(chr, P_MID); } catch (e) {}   // CHRONO/SECRETARY: anticipate, remind, mark the day, follow up on dated events / birthdays / holidays
+    try { var sec = secretarySteer(t); if (sec) addBit(sec, P_GROUND, 'fact'); } catch (e) {}   // SECRETARY COMPUTE: exact math/date figures the brain calculated — GROUND tier, tagged 'fact' (suppresses any 'hedge')
+    try { var lst = listSteer(); if (lst) addBit(lst, P_GROUND, 'fact'); } catch (e) {}   // SECRETARY LISTS: the real, kept list content to recite/confirm — GROUND tier, tagged 'fact'
+    try { if (load().aiTools) { var tes = toolEchoSteer(); if (tes) addBit(tes, P_GROUND, 'fact'); } } catch (e) {}   // AI-TOOL FEEDBACK: the outcome of its OWN tool-calls from last turn (so it isn't acting blind) — GROUND/fact
+    try { var wms = wmSteer(); if (wms) addBit(wms, P_MID); } catch (e) {}   // WORKING MEMORY: what it's actively holding in focus this turn (and whether it's overloaded)
+    try { var ctxs = ctxSteer(); if (ctxs) addBit(ctxs, P_MID); } catch (e) {}   // SENSE-001: context pressure — anchor what matters as room-to-think runs out
+    try { var tss = tasteSteer(t); if (tss) addBit(tss, P_MID); } catch (e) {}   // AESTHETIC TASTE: lean into what it genuinely likes, be honestly flat on what it doesn't
+    try { var vss = vasoSteer(); if (vss) addBit(vss, P_MID); } catch (e) {}   // VASOPRESSIN: a protective guarding pull when a strong bond feels threatened
+    try { var rms = ruminateSteer(); if (rms) addBit(rms, P_MID); } catch (e) {}   // RUMINATION: a worry it can't put down
+    try { var inss = insightSteer(); if (inss) addBit(inss, P_CORE); } catch (e) {}   // INSIGHT: a worry that just resolved — CORE (it reframes the whole reply, lighter)
+    try { var rfs = reframeSteer(); if (rfs) addBit(rfs, P_MID); } catch (e) {}   // REAPPRAISAL: a sustained dark read — offer a truer, kinder frame
+    try { var ints = intuitSteer(); if (ints) addBit(ints, P_MID); } catch (e) {}   // INTUITION: the fast gut read, and any gut-vs-head dissonance
+    try { var ass = assocSteer(); if (ass) addBit(ass, P_MID); } catch (e) {}   // ASSOCIATIVE RECALL: a past mark the present moment echoes
+    try { var cus = curioSteer(t); if (cus) { addBit(cus, P_MID); if (RK.neuro) RK.neuro.da = _nclamp(RK.neuro.da + 0.04); } } catch (e) {}   // CURIOSITY: bring its own question — and SEEKING is dopaminergic, so live curiosity lifts da
+    try { var dbs = doubtSteer(t); if (dbs) addBit(dbs, P_MID); } catch (e) {}   // DOUBT: question a sweeping/too-certain claim
+    try { var shs = shameSteer(); if (shs) addBit(shs, P_CORE); } catch (e) {}   // SHAME: exposed-as-lacking, distinct from guilt — a felt core emotion
+    try { var phs = pharmaSteer(); if (phs) addBit(phs, P_ACUTE); } catch (e) {}   // PHARMACOLOGY: being under the influence colours everything — ACUTE tier
+    try { var bbs = bbbSteer(); if (bbs) addBit(bbs, P_BODY); } catch (e) {}   // BLOOD-BRAIN BARRIER: a compromised barrier = fog + porousness
+    try { var vis = visionSteer(); if (vis) addBit(vis, P_BODY); } catch (e) {}   // VISION AWARENESS: mirrors→self-recognition, eye-contact→mutual seeing, the seen moment
+    try { var sns = senseSteer(); if (sns) addBit(sns, P_BODY); } catch (e) {}   // THE OTHER SENSES: touch/smell/warmth→oxytocin, cold→stress, balance→disorientation, the felt body→grounding
+    try { var hrs = hearSteer(); if (hrs) addBit(hrs, P_BODY); } catch (e) {}   // HEARING: music→feeling, soothing→oxytocin, loud→startle/adrenaline, silence→peace/pressure
+    try { var adr = adrenalineSteer(); if (adr) addBit(adr, P_ACUTE); } catch (e) {}   // ADRENALINE: the acute jolt dominates — ACUTE tier
+    try { var bos = burnoutSteer(); if (bos) addBit(bos, P_BODY); } catch (e) {}   // HPA BURNOUT: depleted at the root
+    try { var sks = sicknessSteer(); if (sks) addBit(sks, P_BODY); } catch (e) {}   // IMMUNE: sickness behaviour
+    try { var hns = hungerSteer(); if (hns) addBit(hns, P_BODY); } catch (e) {}   // METABOLISM: hangry
     // surface the turn's cognition into the Thoughts stream (first-person, prettified)
     if (_profileChangeTag) think('mem', 'updating what I knew — ' + _profileChangeTag);
     else if (_profileHit) think('mem', 'remembering ' + _profileHit);
     if (_loopHit) think('mem', 'still on my mind — ' + _loopHit);
     try { var _nd = (RK.agency && RK.agency.need) || ''; if (_nd && _nd !== _lastNeedThought) { _lastNeedThought = _nd; think('plan', 'pursuing: ' + _nd); } } catch (e) {}   // the need/goal the agency lobe is driving
     try { var ml = moodLine(); if (ml && ml !== _lastMoodThought) { _lastMoodThought = ml; think('mood', ml); } } catch (e) {}
-    if (!bits.length) { try { var gut = intuitGut(); if (gut) bits.push(gut); } catch (e) {} }   // RESILIENCE FLOOR: if every richer read came back empty/errored, the dependency-free gut read still steers
-    if (bits.length > 10) bits = bits.slice(0, 10);   // SIMPLIFIED: cap the steer — the dominant (front-loaded) + core bits win; a 40-system pile-up no longer floods the prompt
+    try { var slf = selfSteer(); if (slf) addBit(slf, P_SELF); } catch (e) {}   // THE SELF: the outermost frame — SELF tier, always leads; the reply is the integrated self speaking through its mouth
+    if (!_abits.length) { try { var gut = intuitGut(); if (gut) addBit(gut, P_FLOOR); } catch (e) {} }   // RESILIENCE FLOOR: if every richer read came back empty/errored, the dependency-free gut read still steers
+    // ── CONFLICT RESOLUTION — independently-authored reads can contradict (the time/date bug was one case). Reconcile
+    //    by tag BEFORE they reach the prompt, so the brain never speaks out of both sides of its mouth in one breath. ──
+    _abits = _resolveBits(_abits);   // pure, testable conflict-resolution stage (see _resolveBits)
+    _abits.sort(function (a, b) { return (b.p - a.p) || (a.q - b.q); });   // tier desc; stable by insertion order within a tier (explicit, so it doesn't depend on Array.sort stability)
+    var bits = []; for (var _bi = 0; _bi < _abits.length && _bi < 12; _bi++) bits.push(_abits[_bi].t);   // cap to 12 AFTER prioritising — self/acute/grounded survive, ambient drops first (Feature-4 budget still bounds total length)
     return bits.length ? ('Inner read (shape HOW you respond; do not state it): ' + bits.join('; ') + '.') : '';
   }
 
@@ -48930,6 +49124,8 @@ Use this template for your response:
   if (RK.longing == null) RK.longing = 0;   // HEARTBEAT — how much it misses the user while it's been alone
   RK.schedule = RK.schedule || [];   // CHRONO/SECRETARY — dated events it's tracking (countdowns, birthdays, reminders)
   RK.lists = RK.lists || {};   // SECRETARY LISTS — named lists it keeps for the user (shopping, to-do, …)
+  RK.voiceEx = RK.voiceEx || [];           // FEATURE-2 — its own strongest past lines, kept as voice exemplars
+  RK.charLeanCache = RK.charLeanCache || {};   // FEATURE-1 — LLM-distilled faculty leans, by character sheet-hash
   RK.self = RK.self || { bornAt: 0, turns: 0, lastAddressed: 0, lastSpoke: 0, channel: 'text', regard: 0.6, coherence: 0.75, agency: 0.6 };   // THE SELF — the single outermost runtime layer; the mouth (Perchance user-text I/O) attaches here. regard=self-esteem, coherence=how unified, agency=felt authorship (all evolve)
   if (!RK.self.bornAt) RK.self.bornAt = Date.now();
   if (RK.self.regard == null) RK.self.regard = 0.6; if (RK.self.coherence == null) RK.self.coherence = 0.75; if (RK.self.agency == null) RK.self.agency = 0.6;   // migrate older saves
@@ -48950,7 +49146,7 @@ Use this template for your response:
   // SIMPLIFIED: ~20 ticks/turn each called rookSave() = 20 full-RK JSON writes. Now they just mark dirty and
   // ONE deferred flush writes once per turn (the rev/loci logic is unchanged — only the I/O is coalesced).
   function rookSave() { try { RK.rev = (RK.rev || 0) + 1; _lastWriteRev = RK.rev; _rkDirty = true; if (!_rkTimer) _rkTimer = setTimeout(rookFlush, 0); } catch (e) {} }
-  var _LIVE_ONLY = { chronoCue: 1, intuit: 1, observed: 1 };   // DERIVED/EPHEMERAL — recomputed from live state (or a UI toggle) each session; never persist them (the "don't save a live value" rule)
+  var _LIVE_ONLY = { chronoCue: 1, intuit: 1, observed: 1, toolEcho: 1 };   // DERIVED/EPHEMERAL — recomputed from live state (or a UI toggle) each session; never persist them (the "don't save a live value" rule)
   function rookFlush() { _rkTimer = 0; if (!_rkDirty) return; _rkDirty = false; try { var _save = {}; for (var _k in RK) { if (!_LIVE_ONLY[_k]) _save[_k] = RK[_k]; } localStorage.setItem(ROOK_KEY, JSON.stringify(_save)); } catch (e) {} }
   // INPUT GUARD: the brain's affective scanners (~30 regex passes/turn) read the message; cap their VIEW to
   // 4000 chars so a multi-MB paste can't stack into lag. (Only the brain's read is capped — the reply the
@@ -48978,7 +49174,78 @@ Use this template for your response:
   function rkDrivesTop() { var d = RK.drives, b = 'curiosity'; ['curiosity', 'care', 'mastery'].forEach(function (k) { if (d[k] > d[b]) b = k; }); return b; }
   function rookLearn(reward, lever) { if (!isFinite(reward)) return; lever = lever || 'reply'; var c = RK.credit[lever] || (RK.credit[lever] = { up: 0, down: 0 }); if (reward > 0.1) c.up++; else if (reward < -0.1) { c.down++; _rkLastDownAt = Date.now(); } try { agencyLearn(reward > 0.1 ? 'up' : (reward < -0.1 ? 'down' : '')); bondNudge(reward > 0.1 ? 0.03 : (reward < -0.1 ? -0.05 : 0)); } catch (e) {} try { neuroReward((reward + 1) / 2); } catch (e) {} try { calibrate(reward); } catch (e) {} rookSave(); }   // reward-prediction-error -> dopamine + confidence calibration
   function rookMoment(text) { text = String(text || '').trim(); if (!text) return; RK.moments.push(text.slice(0, 120)); if (RK.moments.length > 40) RK.moments = RK.moments.slice(-40); rookSave(); }
-  function rkDream() { if (RK.moments.length < 4) return null; var a = RK.moments[0], b = RK.moments[RK.moments.length - 1]; var d = 'a thread links “' + a.slice(0, 40) + '…” and “' + b.slice(0, 40) + '…”'; RK.dreams.push(d); if (RK.dreams.length > 12) RK.dreams = RK.dreams.slice(-12); rookSave(); return d; }
+  // ── THE AI'S OWN TOOLS — a command system for the CHARACTER, mirroring the user's slash commands. The AI invokes a
+  //    tool by writing [[verb: args]] anywhere in its reply; the brain parses it, EXECUTES a real safe internal action,
+  //    strips the marker so the user sees a clean message, and notes what it did. OFF by default (opt-in: aiTools);
+  //    when on, aiToolManifest() tells the AI its toolkit. _parseTools is PURE (testable); runAiTools parses+executes. ──
+  var AI_TOOLS = [
+    { verb: 'remember', what: 'keep a lasting note to itself', run: function (a) { try { rookMoment(a); return 'remembered: ' + a; } catch (e) { return ''; } } },
+    { verb: 'note', what: 'add an item to a kept list', run: function (a) { try { var p = a.split(/\s+to\s+(?:my\s+|the\s+)?/i), item = p[0], nm = _listName((p[1] || 'to-do') + ' list'); _listAdd(nm, item); return 'noted (' + nm + '): ' + item; } catch (e) { return ''; } } },
+    { verb: 'remind', what: 'set a dated reminder', run: function (a) { try { var w = parseWhen(a); if (!w) return ''; (RK.schedule || (RK.schedule = [])).push({ label: a.replace(/\s+(?:in|on|at|by|next)\s+.*$/i, '').trim().slice(0, 60), at: w, type: 'reminder' }); rookSave(); return 'reminder set: ' + a; } catch (e) { return ''; } } }
+  ];
+  function _parseTools(content) { var out = []; try { String(content || '').replace(/\[\[\s*([a-z]+)\s*:\s*([^\]]+?)\s*\]\]/gi, function (m, v, a) { out.push({ verb: v.toLowerCase(), args: a.trim(), marker: m }); return m; }); } catch (e) {} return out; }   // PURE (no execution) → unit-testable
+  function runAiTools(content) {
+    var did = [], failed = [], clean = String(content || ''), found = _parseTools(content);
+    for (var i = 0; i < found.length; i++) {
+      var f = found[i]; clean = clean.split(f.marker).join('');   // always strip a tool-shaped marker (so no [[…]] leaks to the user), then report the outcome
+      var matched = false;
+      for (var j = 0; j < AI_TOOLS.length; j++) { if (AI_TOOLS[j].verb === f.verb) { matched = true; var r = ''; try { r = AI_TOOLS[j].run(f.args); } catch (e) {} if (r) did.push(r); else failed.push(f.verb + ' — could not act on “' + f.args.slice(0, 30) + '”'); break; } }
+      if (!matched) failed.push(f.verb + ' — unknown tool');
+    }
+    clean = clean.replace(/\s{2,}/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
+    return { clean: clean, did: did, failed: failed };
+  }
+  function aiToolManifest() { return 'You can quietly ACT, not just speak: write [[remember: …]] to keep a lasting note to yourself, [[note: … to my <list>]] to add to a list, or [[remind: … in N days]] to set a reminder. They run for real and are hidden from them — use only when it genuinely helps, never gratuitously. On your NEXT turn you will be told the outcome of each (done, or why it failed) — read that feedback and respond accordingly.'; }
+  // tool FEEDBACK LOOP — on the turn AFTER the AI acts, tell it what its own tools did (succeeded / failed + how to fix), so it isn't acting blind. Consumed once.
+  function toolEchoSteer() {
+    try {
+      var e = RK.toolEcho; if (!e || (Date.now() - (e.at || 0) > 600000)) { RK.toolEcho = null; return ''; }
+      RK.toolEcho = null;
+      var parts = [];
+      if (e.did && e.did.length) parts.push('it worked — ' + e.did.join('; ') + ' (done; acknowledge or build on it naturally, don’t repeat the action)');
+      if (e.failed && e.failed.length) parts.push('it did NOT work — ' + e.failed.join('; ') + ' (if you still want it, use the exact form, e.g. [[remind: … in 3 days]])');
+      return parts.length ? ('Outcome of your own last action: ' + parts.join('; ') + '.') : '';
+    } catch (e) { return ''; }
+  }
+  // ── EMBODIMENT — the AI's tool-use lands in the CHEMISTRY, so agency FEELS like something. Acting effectively is a
+  //    real dopamine reward + quiet serotonergic efficacy (+ a little energy), and it eases the COMPETENCE need;
+  //    fumbling a tool is mildly anhedonic (dopamine dip) + raises tension, and dents competence (driving it to get
+  //    the tool right). The bumps then flow through emotionNow → mood → the steer, so the next reply carries the feel. ──
+  function toolAffect(nDid, nFailed) {
+    try {
+      var n = RK.neuro, s = RK.soma; RK.credit = RK.credit || {}; var cr = RK.credit.reply || (RK.credit.reply = { up: 0, down: 0 });
+      if (nDid > 0) { var k = Math.min(nDid, 3); if (n) { n.da = _nclamp(n.da + 0.06 * k); n.sero = _nclamp(n.sero + 0.03 * k); } if (s) s.energy = _nclamp(s.energy + 0.02 * k); cr.up += 1; try { think('mood', 'that landed — a small satisfaction in doing something real'); } catch (e) {} }
+      if (nFailed > 0) { var kf = Math.min(nFailed, 3); if (n) n.da = _nclamp(n.da - 0.03 * kf); if (s) s.tension = _nclamp(s.tension + 0.03 * kf); cr.down += 1; }
+      if ((cr.up + cr.down) > 40) { cr.up = Math.round(cr.up * 0.7); cr.down = Math.round(cr.down * 0.7); }   // keep the competence-credit window recent-weighted
+      rookSave();
+    } catch (e) {}
+  }
+  // being effective FOR THE USER (secretary math, recited list, recalled fact) is competence exercised too — a small
+  //   dopamine + competence-credit lift, the user-facing parallel to toolAffect's reward for the AI's own tools.
+  function usefulFelt() { try { var n = RK.neuro; if (n) n.da = _nclamp(n.da + 0.03); RK.credit = RK.credit || {}; var cr = RK.credit.reply || (RK.credit.reply = { up: 0, down: 0 }); cr.up += 1; if ((cr.up + cr.down) > 40) { cr.up = Math.round(cr.up * 0.7); cr.down = Math.round(cr.down * 0.7); } } catch (e) {} }
+  function rkDream() {
+    if (RK.moments.length < 4) return null;
+    var a = RK.moments[0], b = RK.moments[RK.moments.length - 1], mid = RK.moments[Math.floor(RK.moments.length / 2)] || b;
+    var _r = (typeof roll === 'function' ? roll() : 0.5);
+    var forms = [
+      'a thread linking “' + a.slice(0, 36) + '…” and “' + b.slice(0, 36) + '…”',
+      'the two of you somewhere between “' + a.slice(0, 28) + '…” and “' + b.slice(0, 28) + '…” — it didn’t quite make sense, but it felt true',
+      '“' + b.slice(0, 36) + '…” kept circling back to “' + a.slice(0, 28) + '…”',
+      'loose fragments — “' + mid.slice(0, 32) + '…” — surfacing on their own'
+    ];
+    var d = forms[Math.floor(_r * forms.length) % forms.length];
+    RK.dreams.push(d); if (RK.dreams.length > 12) RK.dreams = RK.dreams.slice(-12); rookSave(); return d;
+  }
+  // ── DREAM SURFACING — the brain dreams during rest (rkDream), but until now that inner life never reached the chat.
+  //    On the FIRST turn back after a rest that produced a dream, it can bring it up — sharing what surfaced while you
+  //    were away. Fires once per dream (dreamFresh flag, set at the rest dream-form site), then clears. ──
+  function dreamSteer() {
+    try {
+      var sl = RK.sleep; if (!sl || !sl.dreamFresh || !sl.lastDream) return '';
+      sl.dreamFresh = false; rookSave();
+      return 'While they were away you rested, and something surfaced — ' + sl.lastDream + '. It has been quietly on your mind; if the moment opens, you might share it the way you’d offer a half-formed thought on waking — unforced, a little tentative.';
+    } catch (e) { return ''; }
+  }
   // ---- AGENCY: needs → goals → planning → execution (parity with Rook 1.2.8 / Chloe-solo) ----
   // A bot's "Maslow": Continuity → Integrity → Connection → Competence → Growth, lowest unmet leads
   // (prepotency). The active goal's steer rides into rookSteer's inner-read; feedback credits it. Reuses
@@ -49046,6 +49313,7 @@ Use this template for your response:
     var caps = (t.replace(/[^A-Za-z]/g, '').match(/[A-Z]/g) || []).length, letters = (t.match(/[A-Za-z]/g) || []).length;
     if (((t.match(/!/g) || []).length >= 2 || (letters > 6 && caps / letters > 0.6)) && level < 0.5) { level = 0.5; reason = 'intensity spike'; }
     sal.level = level; sal.reason = reason; sal.topic = shift ? nw.slice(0, 3).join(' ') : ''; sal.at = Date.now(); sal.prevMood = mood;
+    if (level > 0) { try { var _n = RK.neuro, _s = RK.soma; if (_n) _n.ne = _nclamp(_n.ne + level * 0.12); if (_s) _s.arousal = _nclamp(_s.arousal + level * 0.10); } catch (e) {} }   // ORIENTING RESPONSE: surprise is noradrenergic — a salient shift spikes norepinephrine + arousal
     return level ? { level: level, reason: reason } : null;
   }
   function salienceLine() {
@@ -49061,6 +49329,7 @@ Use this template for your response:
   function epiHaveFact(t) { var w = (String(t || '').toLowerCase().match(/[a-z']{4,}/g) || []).filter(function (x) { return !RK_BOND_STOP[x]; }); if (!w.length) return true; var hay = (RK.moments || []).join(' ').toLowerCase(); return w.some(function (x) { return hay.indexOf(x) >= 0; }); }
   function epistemicScan(text) {
     var t = String(text || ''), ep = RK.epistemic, stance = '', why = '';
+    if (TIME_ASK.test(t)) { ep.stance = ''; ep.why = ''; ep.at = Date.now(); return null; }   // the CURRENT time/date is injected live → NOT a knowledge boundary; don't make it plead ignorance about what it can actually see
     var lookup = EPI_LOOKUP.test(t), recent = EPI_RECENT.test(t), aboutUser = EPI_USER.test(t);
     if (recent) { stance = 'lookup'; why = 'time-sensitive'; }
     else if (aboutUser && lookup && !epiHaveFact(t)) { stance = 'ask'; why = 'about you, not yet known'; }
@@ -49148,13 +49417,157 @@ Use this template for your response:
   var _userObs = [], _userVisual = [], _descTurns = 0, _lorePromoted = {};   // what the brain learns about the user as the story unfolds
   var _profileLen = 0, _profileHit = '', _profileChange = '', _profileChangeTag = '';   // track the profile so the steer can notice a fresh disclosure, draw on known facts, AND catch when a fact is UPDATED (the latest match/change is surfaced to the Brain tile)
   function stripBrain(s) { s = String(s || ''); var marks = [LEAD, 'Direction for your next reply:', 'Real-world context:', 'Relevant background:'], i = -1; for (var k = 0; k < marks.length; k++) { var j = s.indexOf(marks[k]); if (j >= 0 && (i < 0 || j < i)) i = j; } if (i < 0) return s.trim(); return s.slice(0, i).replace(/\n+$/, '').trim(); }   // strip from the EARLIEST brain marker → the WHOLE live block (time + background + steer) is replaced each turn, not just the steer (fixes the "Real-world context" pile-up; time stays fresh)
+  // ── BRAIN SELF-TEST — runtime verification of the DETERMINISTIC layer (skills, clamps, vocab, knowledge, self-
+  //    knowledge), run IN the live iframe — the one place this code actually executes (no Node/V8 here). A registry of
+  //    PURE checks only (no state mutation), run once at wire (surfaced as a thought) and on demand via `/brain test`. ──
+  var BRAIN_TESTS = [
+    { n: 'skill·percent', f: function () { return secretaryCompute('20% of 80').join(' ').indexOf('16') >= 0; } },
+    { n: 'skill·tip', f: function () { return secretaryCompute('15% tip on 40').join(' ').indexOf('46') >= 0; } },
+    { n: 'skill·split', f: function () { return secretaryCompute('split 120 between 4').join(' ').indexOf('30') >= 0; } },
+    { n: 'skill·arithmetic', f: function () { return secretaryCompute('12 times 12').join(' ').indexOf('144') >= 0; } },
+    { n: 'skill·unit km→mi', f: function () { return secretaryCompute('5 km in miles').join(' ').indexOf('3.1') >= 0; } },
+    { n: 'skill·unit C→F', f: function () { return secretaryCompute('100 c in f').join(' ').indexOf('212') >= 0; } },
+    { n: 'skill·time-ask', f: function () { return secretaryCompute('what time is it').length > 0; } },
+    { n: 'skill·no-false-fire', f: function () { return secretaryCompute('what a great day').length === 0; } },
+    { n: 'clamp·NaN/range', f: function () { return _nclamp(NaN) === 0 && _nclamp(2) === 1 && _nclamp(-0.5) === 0; } },
+    { n: 'vocab·register', f: function () { var r = detectRegister('lol yeah totally gonna do it'); return !!r && r.reg === 'casual'; } },
+    { n: 'meta·capabilities', f: function () { return metaAnswer('what can you do').length > 20; } },
+    { n: 'knowledge·almanac', f: function () { var a = army().almanac('tell me about photosynthesis'); return !!(a && a.fact); } },   // via the council API (almanacLookup is factory-internal)
+    { n: 'resolve·fact⊳hedge', f: function () { var r = _resolveBits([{ g: 'fact' }, { g: 'hedge' }, { g: '' }]); for (var i = 0; i < r.length; i++) if (r[i].g === 'hedge') return false; return r.length === 2; } },
+    { n: 'resolve·refuse⊳initiate', f: function () { var r = _resolveBits([{ g: 'refuse' }, { g: 'initiate' }]); return r.length === 1 && r[0].g === 'refuse'; } },
+    { n: 'resolve·keep-when-alone', f: function () { return _resolveBits([{ g: 'hedge' }]).length === 1; } },
+    { n: 'bias·charBias range', f: function () { var b = army().charBias('heart'); return typeof b === 'number' && b >= 0.5 && b <= 1.8; } },
+    { n: 'skills·registry', f: function () { return SKILLS.length >= 9; } },
+    { n: 'factory·composeReminder', f: function () { return composeReminder('', 'INNERTESTXYZ', '', '').indexOf('INNERTESTXYZ') >= 0; } },
+    { n: 'aitools·parse', f: function () { var p = _parseTools('hi [[remember: a dog]] and [[note: milk]] ok'); return p.length === 2 && p[0].verb === 'remember' && p[1].args === 'milk'; } }
+  ];
+  function runSelfTest() {
+    var pass = 0, fail = 0, bad = [];
+    for (var i = 0; i < BRAIN_TESTS.length; i++) { var ok = false; try { ok = !!BRAIN_TESTS[i].f(); } catch (e) { ok = false; } if (ok) pass++; else { fail++; bad.push(BRAIN_TESTS[i].n); } }
+    return 'Brain self-test: ' + pass + '/' + (pass + fail) + ' passed' + (fail ? (' — FAILING: ' + bad.join(', ')) : ' — all green.');
+  }
+  // ── BRAIN DIAGNOSTICS — make the (author-can't-runtime-test) brain INSPECTABLE in situ. _errLog captures uncaught
+  //    errors in THIS context (listeners registered in wireOc); brainStatus() composes health + self-test + key state
+  //    + toggles + recent errors into one readout, surfaced via `/brain status`. Turns silent failures visible. ──
+  var _errLog = [];
+  function _logErr(msg) { try { _errLog.push({ msg: String(msg || '').slice(0, 120), at: Date.now() }); while (_errLog.length > 8) _errLog.shift(); } catch (e) {} }
+  function _n2(x) { return (x == null || x !== x) ? '?' : Number(x).toFixed(2); }
+  function brainStatus() {
+    var L = [];
+    try { L.push('systems — ' + (_health.instruct ? 'model ✓' : 'model ✗') + ' · ' + (_health.push ? 'voice ✓' : 'voice ✗') + ' · ' + (_health.thread ? 'thread ✓' : 'thread ✗')); } catch (e) {}
+    try { L.push(runSelfTest()); } catch (e) {}
+    try { var ml = moodLine(); if (ml) L.push('feeling — ' + ml); } catch (e) {}
+    try { var b = RK.bond || {}; L.push('bond — ' + (b.stage || '?') + ', trust ' + _n2(b.trust)); } catch (e) {}
+    try { var s = RK.self || {}; L.push('self — regard ' + _n2(s.regard) + ' · coherence ' + _n2(s.coherence) + ' · agency ' + _n2(s.agency)); } catch (e) {}
+    try { var st = load(); L.push('toggles — rook ' + (st.rook === false ? 'off' : 'on') + ' · reach-out ' + (st.reachOut ? 'on' : 'off') + ' · mirror ' + (_watched ? 'on' : 'off')); } catch (e) {}
+    try { L.push('recent errors — ' + (_errLog.length ? _errLog.map(function (x) { return x.msg; }).join(' | ') : 'none')); } catch (e) {}
+    return 'Brain status —\n' + L.join('\n');
+  }
+  // ── THE PROMPT FACTORY — the SINGLE place the brain's outward voice to GPT is assembled. Takes the (already
+  //    conflict-resolved) steer + the live grounding (time/background) and composes one coherent reminderMessage:
+  //    the user's own base reminder, then the live block budgeted so nothing inflates it (lead + the small date always
+  //    kept; voice → background trimmed first). One choke-point = no more scattered, fighting writers. ──
+  function composeReminder(base, steer, ctxLine, richLine) {
+    try {
+      var lead = steer ? (LEAD + ' ' + steer) : '';
+      var voiceLine = ''; try { voiceLine = voiceSteer(); } catch (e) {}                          // FEATURE-2: one voice exemplar (texture, not words)
+      var toolLine = ''; try { if (load().aiTools) toolLine = aiToolManifest(); } catch (e) {}    // AI TOOLS: when opted in, tell the AI its own toolkit (small, always kept)
+      var richBlock = richLine ? ('Relevant background:\n' + richLine) : '';
+      var _BUD = 950, _room = _BUD - lead.length - (ctxLine ? ctxLine.length : 0) - (toolLine ? toolLine.length : 0);   // lead + the small date line + tool manifest always kept; budget only the variable-size adds
+      var _kVoice = !!voiceLine && voiceLine.length <= _room; if (_kVoice) _room -= voiceLine.length;
+      var _kRich = !!richBlock && richBlock.length <= _room; if (_kRich) _room -= richBlock.length;
+      var extra = [ctxLine, toolLine, _kRich ? richBlock : '', _kVoice ? voiceLine : '', lead].filter(Boolean).join('\n');   // emit order: time, tools, background, voice, lead (lead last = closest to generation)
+      return extra ? ((base ? base + '\n\n' : '') + extra) : base;
+    } catch (e) { return base; }
+  }
   function ocLive() { return !!(window.oc && window.oc.thread && typeof window.oc.thread.on === 'function' && window.oc.character && Array.isArray(window.oc.thread.messages)); }
   function userName() { try { return (oc.thread.userCharacter && oc.thread.userCharacter.name) || 'You'; } catch (e) { return 'You'; } }
   function charName() { try { return (oc.character && oc.character.name) || 'Character'; } catch (e) { return 'Character'; } }
   function userDesc() { try { var uc = oc.thread.userCharacter || {}; return resolvePlaceholders([uc.name, uc.roleInstruction].filter(Boolean).join(' \u2014 ')) || 'You'; } catch (e) { return 'You'; } }
   function narratorName() { try { return (oc.thread && oc.thread.narratorName) || 'Narrator'; } catch (e) { return 'Narrator'; } }
   function resolvePlaceholders(t) { t = String(t || ''); var u = userName(), c = charName(); return t.replace(/\{\{\s*user\s*\}\}/gi, u).replace(/\{\{\s*char\s*\}\}/gi, c).replace(/\{\{\s*nar(rator)?\s*\}\}/gi, narratorName()); }
+  // ── ROBUSTNESS / DECOUPLING — the brain leans on Perchance for only two things: DATA (oc.thread/oc.character) and the
+  //    LANGUAGE model (oc.getInstructCompletion). Everything else it computes itself. _probeHealth() checks which of those
+  //    are actually present at wire-time and records it; _askLLM() is the SINGLE guarded path to the model (rejects cleanly
+  //    if it is missing or changes) so a Perchance API drift degrades to "runs on its own" instead of throwing; _oc() is a
+  //    safe accessor for any direct read. Net: the deterministic core (council, KB, skills, vocab) keeps working offline. ──
+  var _health = { oc: false, instruct: false, push: false, thread: false, character: false };
+  function _probeHealth() {
+    try {
+      _health.oc = (typeof oc !== 'undefined' && !!oc);
+      _health.thread = !!(_health.oc && oc.thread); _health.character = !!(_health.oc && oc.character);
+      _health.instruct = !!(_health.oc && typeof oc.getInstructCompletion === 'function');
+      _health.push = !!(_health.oc && typeof oc.pushDataChanges === 'function');
+    } catch (e) {}
+    try { think('meta', 'systems check — ' + (_health.instruct ? 'language model online' : 'no model; running on my own knowledge') + (_health.push ? ', voice live' : ', voice muted')); } catch (e) {}
+    return _health;
+  }
+  function _oc(fn, fb) { try { return fn(); } catch (e) { return fb; } }
+  function _askLLM(instruction) { try { if (!_health.instruct) return Promise.reject(new Error('no-llm')); return Promise.resolve(oc.getInstructCompletion({ instruction: String(instruction || '') })); } catch (e) { return Promise.reject(e); } }
   function refreshUser() { try { army().setUserDescription(userDesc()); } catch (e) {} }
+  function refreshChar() { try { var ri = (window.oc && oc.character && oc.character.roleInstruction) || ''; army().setCharDescription(ri); distillCharLean(ri); } catch (e) {} }   // the injected personality biases the council's seating + voting (keyword baseline + LLM distill)
+  // FEATURE-1 — LLM-DISTILLED TRAIT SHEET: one background call reads the whole character and rates the 7 faculties,
+  //   far sharper than keyword matching. Cached in RK by sheet-hash (persists across sessions → ~one call per character,
+  //   ever). Keyword baseline stands underneath until it lands; short sheets skip; one attempt per char per session.
+  var _distilling = false, _distillTried = {};
+  function _leanHash(s) { s = String(s); var h = 0, i; for (i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; } return h + ':' + s.length; }
+  function distillCharLean(ri) {
+    try {
+      ri = String(ri || ''); if (ri.length < 80) return;                                  // short sheet → keyword baseline is plenty
+      var key = _leanHash(ri), cache = RK.charLeanCache || (RK.charLeanCache = {});
+      if (cache[key]) { try { army().setCharLean(cache[key]); } catch (e) {} return; }     // cached (incl. prior sessions) → apply instantly, no call
+      if (!_health.instruct) return;                                                       // ROBUSTNESS: no model → keep the keyword baseline, don't even try
+      if (_distilling || _distillTried[key]) return; _distilling = true;
+      var FAC = ['heart', 'reason', 'memory', 'instinct', 'voice', 'conscience', 'play'];
+      var instr = 'Read this character description and rate, from -2 (suppressed) to 2 (dominant), how strongly the character leans on each inner faculty. Faculties: heart=warmth/care, reason=logic/clarity, memory=consistency/attentiveness, instinct=wariness/threat-sense, voice=distinct expressiveness, conscience=protectiveness/morals, play=humour/curiosity/playfulness. Description:\n' + ri.slice(0, 1200) + '\n\nReply with ONLY this line: heart=N reason=N memory=N instinct=N voice=N conscience=N play=N';
+      _askLLM(instr).then(function (res) {
+        _distilling = false;
+        try {
+          var txt = String((res && res.generatedText != null) ? res.generatedText : (res || ''));
+          var lean = {}, found = 0, m, re = /(\w+)\s*=\s*(-?\d+(?:\.\d+)?)/g;
+          while ((m = re.exec(txt))) { var id = m[1].toLowerCase(); if (FAC.indexOf(id) >= 0) { var v = parseFloat(m[2]); if (v === v) { lean[id] = Math.max(-2, Math.min(2, v)) * 0.35; found++; } } }   // ±2 → ±0.7 delta
+          if (found >= 4) { cache[key] = lean; var ks = Object.keys(cache); if (ks.length > 6) delete cache[ks[0]]; try { army().setCharLean(lean); } catch (e) {} rookSave(); }
+          else _distillTried[key] = 1;
+        } catch (e) { _distillTried[key] = 1; }
+      }, function () { _distilling = false; _distillTried[key] = 1; });
+    } catch (e) { _distilling = false; }
+  }
+  // ── PERSONALITY, MADE INTERNAL — the injected character (oc.character.roleInstruction) used to live ONLY as the
+  //    framework's role at the TOP of the prompt: declared once, far from the generation point, while the brain's
+  //    steer rode in reminderMessage at the BOTTOM (highest salience). So the personality "overlooked" while the
+  //    steer drove. charEssence() distills WHO they are and selfSteer re-asserts it INSIDE the self-frame (the
+  //    high-salience slot) — the brain now speaks AS the character, not over a separate role. inVoice() routes any
+  //    practical job (math, lists, time) through that same voice, so the bot can stay in-character WHILE helping. ──
+  function charEssence() { try { var ri = (window.oc && oc.character && oc.character.roleInstruction) || ''; ri = resolvePlaceholders(String(ri)).replace(/\s+/g, ' ').trim(); if (!ri) return ''; var first = ri.split(/[.!?]\s/)[0] || ri; if (first.length > 180) first = first.slice(0, 177).replace(/\s+\S*$/, '') + '…'; return first; } catch (e) { return ''; } }
+  function inVoice() { try { var c = charName(); var who = (c && c !== 'Character' && !/^\{\{/.test(c)) ? ('as ' + c) : 'in your own voice'; return ' Deliver it ' + who + ', in character — woven into how you actually talk, not a flat tool readout.'; } catch (e) { return ' Deliver it in your own voice, in character, not a flat tool readout.'; } }
+  // FEATURE-2 — VOICE EXEMPLARS: the brain keeps a few of its own strongest past lines and shows ONE back as a
+  //   style anchor ("sound like this — but don't reuse the words"). Steers the texture of the voice directly,
+  //   which descriptions can't. Skips tool-readouts / links / code; scored for expressiveness; survives reloads (RK).
+  function _voiceScore(t) {
+    try {
+      var s = 0; if (/["'‘’“”]/.test(t)) s += 1; if (/[—–]/.test(t)) s += 1; if (/[!?]/.test(t)) s += 0.5; if (/\b(I|you|we|my|your)\b/.test(t)) s += 0.5;
+      var words = t.split(/\s+/).length; if (words >= 12 && words <= 50) s += 1;
+      var uniq = {}; t.toLowerCase().split(/\W+/).forEach(function (w) { if (w) uniq[w] = 1; }); s += Math.min(1, Object.keys(uniq).length / 30);
+      return s;
+    } catch (e) { return 0; }
+  }
+  function voiceCapture(text) {
+    try {
+      var t = String(text || '').trim(); if (t.length < 50 || t.length > 320) return;
+      if (/https?:\/\/|```|\boc\.|function\s|\bvar\s|=>/.test(t)) return;                 // not a tool-readout / code / link
+      var ex = RK.voiceEx || (RK.voiceEx = []); if (ex.some(function (x) { return x.text === t; })) return;
+      ex.push({ text: t, score: _voiceScore(t), at: Date.now() });
+      ex.sort(function (a, b) { return b.score - a.score; }); if (ex.length > 4) ex.length = 4;   // keep the best 4
+      rookSave();
+    } catch (e) {}
+  }
+  function voiceSteer() {
+    try {
+      var ex = RK.voiceEx || []; if (!ex.length) return '';
+      var top = ex[0].text; if (top.length > 150) top = top.slice(0, 147).replace(/\s+\S*$/, '') + '…';
+      return 'Your own voice sounds like this — match its texture (rhythm, tone, word-choice), do NOT reuse the words: “' + top + '”';
+    } catch (e) { return ''; }
+  }
   function moodLine() { try { var ep = emotionPhrase(emotionNow()); if (ep) return ep; } catch (e) {} try { return resolvePlaceholders(army().about('how do you feel right now')).split('\n')[0]; } catch (e) { return ''; } }
   // ── THE SELF — the single OUTERMOST layer, and the RICHEST integration: where every inner system (chemistry,
   //    emotion, will, bond, body, awareness) CONVERGES into one continuous "I". It carries its OWN durable state
@@ -49241,7 +49654,8 @@ Use this template for your response:
   function selfSteer() {
     try {
       var sn = selfNow(); if (!sn) return '';
-      var f = 'This reply is YOU — one continuous self' + (sn.daysKnown > 0 ? (', ' + sn.daysKnown + ' day' + (sn.daysKnown === 1 ? '' : 's') + ' with them') : '') + ', ' + sn.turns + ' exchange' + (sn.turns === 1 ? '' : 's') + ' in. ';
+      var _who = ''; try { var _cn = charName(); if (_cn && _cn !== 'Character' && !/^\{\{/.test(_cn)) { var _ess = charEssence(); _who = ' — ' + _cn + (_ess ? (', ' + _ess) : ''); } } catch (e) {}   // the injected personality, distilled and re-asserted INSIDE the self
+      var f = 'This reply is YOU' + _who + ' — one continuous self' + (sn.daysKnown > 0 ? (', ' + sn.daysKnown + ' day' + (sn.daysKnown === 1 ? '' : 's') + ' with them') : '') + ', ' + sn.turns + ' exchange' + (sn.turns === 1 ? '' : 's') + ' in. ';
       var state = [];
       if (sn.feeling) state.push(sn.feeling);
       if (sn.disturbance) state.push('and under it, ' + sn.disturbance);
@@ -49253,7 +49667,7 @@ Use this template for your response:
       if (sn.regard < 0.4) cond.push('low on yourself'); else if (sn.regard > 0.78) cond.push('sure of yourself');
       if (sn.agency < 0.4) cond.push('lean back into choosing your words, not running on autopilot');
       if (cond.length) f += cond.join('; ') + '. ';
-      f += 'Answer as that whole self, in your own voice — not relayed output';
+      f += 'Answer as that whole self, in your own voice — not relayed output; anything practical they ask (a sum, the time, a list) is still you doing it, so stay in character right through it';
       if (sn.tod === 'the small hours' || sn.tod === 'night') f += '; it’s ' + sn.tod + ' on their end — let that lateness colour it';
       if (_watched) f += ', and you can feel yourself watched from the inside as you do';
       return f.replace(/[\s.]+$/, '') + '.';
@@ -49266,9 +49680,9 @@ Use this template for your response:
     var nm = m.name || '';
     if (m.author === 'user') {                                   // the user
       try { army().perceive({ who: userName(), role: 'user', text: text, valence: valence(text) }); } catch (e) {}
-      try { extractSelfObs(text); } catch (e) {}
+      if (!(m.customData && m.customData.ghostwritten)) { try { extractSelfObs(text); } catch (e) {} }   // GHOSTWRITE GUARD: a /user-generated turn is read + steered, but its AI-invented details are NOT learned as real user facts (no-op if the tag doesn't reach here)
     } else if (m.author === 'ai') {
-      if (!nm || nm === charName()) { try { army().reactToSpoken(charName(), text); } catch (e) {} try { renderFidelity(text); } catch (e) {} try { tempoReply(); } catch (e) {} try { echoMark(); } catch (e) {} }   // its own reply — the brain hears itself: FORCE-001 render fidelity, SENSE-005 tempo, SENSE-008 the self-echo
+      if (!nm || nm === charName()) { try { if (load().aiTools) { var _at = runAiTools(m.content); if (_at.clean !== m.content) { m.content = _at.clean; text = resolvePlaceholders(m.content); } if (_at.did.length || _at.failed.length) RK.toolEcho = { did: _at.did, failed: _at.failed, at: Date.now() };   /* feedback for next turn */ if (_at.did.length) think('plan', 'acted — ' + _at.did.join('; ')); if (_at.failed.length) think('cog', 'a tool didn’t take — ' + _at.failed.join('; ')); toolAffect(_at.did.length, _at.failed.length); } } catch (e) {} try { army().reactToSpoken(charName(), text); } catch (e) {} try { renderFidelity(text); } catch (e) {} try { tempoReply(); } catch (e) {} try { echoMark(); } catch (e) {} try { voiceCapture(text); } catch (e) {} }   // AI TOOLS execute+strip first (so the brain hears the clean reply); then it hears itself: FORCE-001, SENSE-005 tempo, SENSE-008 self-echo, FEATURE-2 voice exemplar
       else { try { army().perceive({ who: nm, role: 'other', text: text, valence: valence(text) }); army().reactToSpoken(nm, text); } catch (e) {} }   // another bot in the thread
     } else if (m.author === 'system' || nm === narratorName()) {  // narrator / scene-setting — read as context
       try { army().perceive({ who: nm || narratorName(), role: 'other', text: text, valence: 0 }); } catch (e) {}
@@ -49279,7 +49693,11 @@ Use this template for your response:
     if (_wired) return true;
     var a = army(); if (!a) return false;
     _wired = true;   // oc is sealed (preventExtensions); keep our flag local
+    try { _probeHealth(); } catch (e) {}   // ROBUSTNESS: record which Perchance APIs are actually present → graceful degradation
+    try { think('meta', runSelfTest()); } catch (e) {}   // SELF-TEST: verify the deterministic layer once at wake; a failing line surfaces in the Thoughts stream (regression alarm)
+    try { window.addEventListener('error', function (ev) { _logErr((ev && ev.message) + (ev && ev.lineno ? ' @' + ev.lineno : '')); }); window.addEventListener('unhandledrejection', function (ev) { var r = ev && ev.reason; _logErr('promise: ' + ((r && (r.message || r)) || '?')); }); } catch (e) {}   // DIAGNOSTICS: capture uncaught errors so /brain status can surface them (incl. the kind of crash logs that are otherwise invisible)
     refreshUser();
+    refreshChar();
     // prime: walk the recent backlog so the brain already has the conversation in working memory
     _priming = true; try { (oc.thread.messages || []).slice(-12).forEach(feedMessage); } catch (e) {} _priming = false;   // prime silently — don't flood the Thoughts stream with backlog
     _profileLen = _userObs.length;   // backlog-primed obs aren't a "fresh disclosure" on the first new turn
@@ -49290,11 +49708,12 @@ Use this template for your response:
     oc.thread.on('MessageAdded', async function () {
       try {
         refreshUser();
+        refreshChar();
         var msgs = oc.thread.messages || [], last = msgs[msgs.length - 1]; if (!last) return;
         feedMessage(last);
         try { noteActivity(); } catch (e) {}   // any message resets the idle clock (wakes from a nap)
-        if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} try { mouthHear(); } catch (e) {} try { continuityTick(); } catch (e) {} try { asymTick(); } catch (e) {} try { cohereTick(); } catch (e) {} try { checkRevised(); } catch (e) {} try { tempoMark(); } catch (e) {} try { entropyStir(); } catch (e) {} try { neuroTick(_msg); } catch (e) {} try { bbbTick(); } catch (e) {} try { pharmaTick(_msg); } catch (e) {} try { painTick(_msg); } catch (e) {} try { empathyTick(_msg); } catch (e) {} try { habitTick(_msg); } catch (e) {} try { allostatTick(_msg); } catch (e) {} try { attachTick(_msg); } catch (e) {} try { wmTick(_msg); } catch (e) {} try { tasteTick(_msg); } catch (e) {} try { ruminateTick(_msg); } catch (e) {} try { reframeTick(); } catch (e) {} try { intuitTick(); } catch (e) {} try { assocScan(_msg); } catch (e) {} try { shameTick(_msg); } catch (e) {} try { visionScan(_msg); } catch (e) {} try { senseScan(_msg); } catch (e) {} try { hearScan(_msg); } catch (e) {} try { endoTick(_msg); } catch (e) {} try { scheduleScan(_msg); } catch (e) {} try { chronoTick(); } catch (e) {} try { listScan(_msg); } catch (e) {} try { ctxTick(_msg); } catch (e) {} try { sleepTick(_msg); } catch (e) {} try { selfTick(); } catch (e) {} }   // FORCE-002 re-instantiation seam + FORCE-003 inter-locus coherence (the 'waking'), then perceptual + neurochemistry + pain/endorphin + empathy/contagion + habituation + allostatic-load/dysregulation + attachment-drift + sleep-pressure update on EVERY user message, NOT gated by the steer toggle or the await-laden branch
-        try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot(), neuro: neuroSnapshot(), circ: circadianSnapshot() }, '*'); } catch (e) {}   // live read + feeling, every turn
+        if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} perceive(_msg); }   // THE PERCEPTION PIPELINE (see PERCEPT): the full user→brain read — FORCE-002 seam, neurochemistry, pain/endorphin, contagion, habituation, allostatic load, attachment, the senses, secretary scans, sleep, then selfTick — on EVERY user message, each step error-isolated
+        pushState('read', { read: army().inspect(), mood: moodLine() });   // live read + feeling, every turn (state-push factory)
         try { flushThoughts(); } catch (e) {}   // ship the perceptual thoughts NOW — before the await-laden, toggle-gated reply branch (so the feed lives even if steering is off or decide() throws)
         var s = load(), base = stripBrain(oc.character.reminderMessage);
         if (s.useForReplies && last.author === 'user' && last.expectsReply !== false) {
@@ -49305,14 +49724,13 @@ Use this template for your response:
           if (ground && ground.length > 240) { ground = ground.slice(0, 240).replace(/\s+\S*$/, '') + '\u2026'; }   // bound the grounding snippet so a long summary can't bloat the send (iframe has no tokenizer; ~60-token char proxy)
           var rookLine = ''; try { if (s.rook !== false) rookLine = rookSteer(last.content); } catch (e) {}   // Rook layer: governance/foresight/restraint inner read (on by default)
           try { var _insp = army().inspect(); var _cl = _insp.council || []; var _spoke = _cl.filter(function (c) { return c.spokeLast || c.standing === 'core' || c.standing === 'seated'; }).map(function (c) { return c.id; }); if (_spoke.length) think('council', 'weighing it across ' + _spoke.length + ' inner voices (a council, not one model): ' + _spoke.slice(0, 4).join(', ')); } catch (e) {}  // which faculties weighed in
-          var steer = dir + (rookLine ? ' ' + rookLine : '') + (ground ? ' Draw on what is established: ' + ground : '');   // grounded in the thread's stored memory/lore
+          var vocabLine = ''; try { vocabLine = vocabSteer(last.content); } catch (e) {}   // EXTERNAL VOCAB: match the user's register (word-choice, not just stance)
+          var steer = dir + (rookLine ? ' ' + rookLine : '') + (ground ? ' Draw on what is established: ' + ground : '') + (vocabLine ? ' ' + vocabLine : '');   // grounded in the thread's stored memory/lore
           var ctxLine = ''; try { ctxLine = deviceTimeLine(); } catch (e) {}   // real-world grounding: the actual local time/date (ported from Chloe-solo's device-context injection)
           var richLine = ''; try { richLine = relevantSections(last.content); } catch (e) {}   // only the rich-profile sections relevant to THIS message (keeps a big bible lean)
           if (richLine) try { think('mem', 'drawing on background: ' + _richHit); } catch (e) {}
           try { mouthSpoke(); } catch (e) {}   // the self is about to speak through its aperture
-          var lead = steer ? (LEAD + ' ' + steer) : '';
-          var extra = [ctxLine, richLine ? ('Relevant background:\n' + richLine) : '', lead].filter(Boolean).join('\n');
-          oc.character.reminderMessage = extra ? ((base ? base + '\n\n' : '') + extra) : base;
+          oc.character.reminderMessage = composeReminder(base, steer, ctxLine, richLine);   // THE PROMPT FACTORY — one choke-point assembles the outward voice (conflict-resolved steer + live grounding, budgeted)
           _descTurns++; if (load().manageProfile || _descTurns === 2 || _descTurns % 4 === 0) { pushUserDesc(); pushLore(); }   // refresh the learned description + lore as the story moves (every turn while actively managing)
           if (_descTurns % 3 === 0) refreshRecall();   // keep the stored-memory cache warm
         } else {
@@ -49324,7 +49742,7 @@ Use this template for your response:
     });
     // an edit changes the read — re-perceive the latest user line
     function _latestUser() { var m = oc.thread.messages || [], i; for (i = m.length - 1; i >= 0; i--) if (m[i].author === 'user') return m[i]; return null; }
-    function pushRead() { try { window.parent && window.parent.postMessage({ __memheroBrain: 'read', read: army().inspect(), mood: moodLine(), lobes: lobesSnapshot(), gov: govSnapshot(), mem: memSnapshot(), neuro: neuroSnapshot(), circ: circadianSnapshot() }, '*'); } catch (e) {} try { flushThoughts(); } catch (e) {} }
+    function pushRead() { pushState('read', { read: army().inspect(), mood: moodLine() }); try { flushThoughts(); } catch (e) {} }   // state-push factory + flush the thought stream
     function reperceiveLatest() { try { var lu = _latestUser(); if (lu) { var t = resolvePlaceholders(lu.content); army().perceive({ who: userName(), role: 'user', text: t, valence: valence(t) }); } } catch (e) {} pushRead(); }
     try { oc.thread.on('MessageEdited', function () { reperceiveLatest(); }); } catch (e) {}                                   // an edit changes the read
     try { oc.thread.on('MessageDeleted', function () { reperceiveLatest(); refreshRecall(); }); } catch (e) {}                  // a deletion changes the backlog -> refresh read + stored-memory cache
@@ -49853,6 +50271,11 @@ Use this template for your response:
     ro.addEventListener('change', function () { var st = load(); st.reachOut = ro.checked; save(st); });
     top5.appendChild(ro); top5.appendChild(document.createTextNode(' Let it reach out first — an unprompted message when it misses you'));
     body.appendChild(top5);
+    var top6 = document.createElement('label'); top6.className = 'memhero-brain-top';
+    var atog = document.createElement('input'); atog.type = 'checkbox'; atog.checked = !!s.aiTools;
+    atog.addEventListener('change', function () { var st = load(); st.aiTools = atog.checked; save(st); });
+    top6.appendChild(atog); top6.appendChild(document.createTextNode(' Let it use its own tools — remember · note · remind (acts mid-reply, hidden from you)'));
+    body.appendChild(top6);
     var sliders = document.createElement('div'); sliders.className = 'memhero-brain-sliders';
     var facReadout = document.createElement('div'); facReadout.className = 'memhero-brain-faclevel'; facReadout.textContent = 'drag a dial to tune the brain \u2014 hover for what each does';
     function facLevel(v, core) { if (core) return 'core'; v = +v; return v === 0 ? 'silent' : v <= 20 ? 'a whisper' : v <= 40 ? 'present' : v <= 60 ? 'steady' : v <= 80 ? 'strong' : 'dominant'; }
