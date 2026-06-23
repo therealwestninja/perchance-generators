@@ -47026,7 +47026,6 @@ Use this template for your response:
     settings: function (d) { if (d.settings) { _settingsCache = d.settings; _army = null; } },
     request: function (d) { broadcast(); },   // a freshly-built iframe asks the main pane for current settings
     read: function (d) { _read = d.read; _mood = d.mood || ''; _lobes = d.lobes || null; _gov = d.gov || null; _mem = d.mem || null; _neuro = d.neuro || null; _circ = d.circ || null; try { renderReadout(); } catch (e) {} try { renderCouncilDash(); } catch (e) {} try { renderLobesDash(); } catch (e) {} try { renderGovDash(); } catch (e) {} try { renderMemDash(); } catch (e) {} try { renderNeuroDash(); } catch (e) {} try { renderCircDash(); } catch (e) {} try { (d.thoughts || []).forEach(renderThought); } catch (e) {} },   // live read + the 7 LCARS layers
-    thoughts: function (d) { try { (d.thoughts || []).forEach(renderThought); } catch (e) {} },   // the live thought stream (decoupled from the read post)
     state: function (d) { try { if (d.lobes) _lobes = d.lobes; if (d.gov) _gov = d.gov; if (d.mem) _mem = d.mem; if (d.neuro) _neuro = d.neuro; if (d.circ) _circ = d.circ; renderLobesDash(); renderGovDash(); renderMemDash(); renderNeuroDash(); renderCircDash(); } catch (e) {} },   // gauge-only update — does NOT touch _read/council
     answer: function (d) { _answer = d.text; renderAnswer(); var _r = _askResolvers.shift(); if (_r) _r(d.text); },   // resolve any awaiting /brain ask
     ask: function (d) { try { var q = String(d.q || ''); var t = /^\s*test\b/i.test(q) ? brainDiagnostics(/\bverbose\b|--?v\b/i.test(q)) : /^\s*debug\b/i.test(q) ? brainDebug() : /^\s*status\b/i.test(q) ? brainStatus() : /^\s*eval\b/i.test(q) ? brainEval(/\bverbose\b|--?v\b/i.test(q)) : ((function () { try { return metaAnswer(q); } catch (e) { return ''; } })() || army().about(q)); window.parent && window.parent.postMessage({ __memheroBrain: 'answer', text: t }, '*'); } catch (e) {} },   // '/brain test' → self-test; '/brain status' → diagnostics; else self-knowledge, then identity   // self-knowledge first, then identity/faculty self-report
@@ -47036,8 +47035,6 @@ Use this template for your response:
     'rr-go': function (d) { try { var n = Math.max(1, Math.min((d && d.n) || 1, 12)); (function chain(k) { if (k <= 0) return; rrStep(function (ok) { if (ok && k > 1) chain(k - 1); }); })(n); } catch (e) {} },   // ROUND-ROBIN: run the next n turns (brain generates + inserts each voice)
     'rr-loop': function (d) { try { rrLoopStart((d && d.max) || 40); } catch (e) {} },   // ROUND-ROBIN LOOP: run continuously until the user jumps in
     'rr-stop': function (d) { try { rrLoopStop('stopped'); } catch (e) {} },
-    'know-fetch': function (d) { try { var rid = d && d.rid, url = String((d && d.url) || ''); if (typeof root === 'undefined' || !root || typeof root.superFetch !== 'function' || !/^https:\/\/en\.wikipedia\.org\//.test(url)) { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: false }); return; } root.superFetch(url).then(function (r) { return r.text(); }).then(function (text) { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: true, text: String(text || '').slice(0, 8000) }); }, function () { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: false }); }); } catch (e) { try { postToIframes({ __memheroBrain: 'know-result', rid: (d && d.rid), ok: false }); } catch (e2) {} } },   // KNOWLEDGE: parent-only Wikipedia fetch (URL whitelisted to en.wikipedia.org — the iframe can't make us fetch anything else)
-    'know-result': function (d) { try { var p = _knowPending && _knowPending[d.rid]; if (p) { delete _knowPending[d.rid]; p({ ok: d.ok, text: d.text }); } } catch (e) {} },
     'manage-now': function (d) { try { manageProfileNow(); } catch (e) {} },   // /profile -> recompute + (re)write the user-data fields now
     broker: function (d) { brokerRPC(d); },   // the brain's unified read/write over every editable surface
     'broker-result': function (d) { try { var _bp = _brokerPending && _brokerPending[d.rid]; if (_bp) { delete _brokerPending[d.rid]; _bp({ ok: d.ok, value: d.value }); } } catch (e) {} },   // resolve a pending broker call
@@ -47124,7 +47121,9 @@ Use this template for your response:
     { id: 'lists', kw: /\b(list|to-?do|todo|shopping|grocer)\b/i, what: 'named lists I keep for you — shopping, to-do, and so on', how: 'e.g. "add milk to my shopping list" or "what is on my to-do"' },
     { id: 'memory', kw: /\b(remember|memory|recall|forget|know about me)\b/i, what: 'I learn and hold facts about you and our history, and bring them up when they fit', how: 'I pick it up as we talk; ask "what do you remember about me"' },
     { id: 'feel', kw: /\b(feel|feeling|mood|emotion|inner|alive|conscious)\b/i, what: 'a real felt inner life — emotions, a body, a sense of self that shifts with how things go', how: 'ask how I feel right now' },
-    { id: 'tools', kw: /\b(tool|remember this|make a note|note that|remind me|keep track)\b/i, what: 'act on my own mid-reply — keep a lasting note, add to a list, or set a reminder (my own version of your slash commands)', how: 'I do it when it helps, if you have enabled my tools' }
+    { id: 'tools', kw: /\b(tool|remember this|make a note|note that|remind me|keep track)\b/i, what: 'act on my own mid-reply — keep a lasting note, add to a list, or set a reminder (my own version of your slash commands)', how: 'I do it when it helps, if you have enabled my tools' },
+    { id: 'lookup', kw: /\b(look ?up|search|wiki(pedia)?|google|find out|do you know|what is|who is|what'?s a|whats a)\b/i, what: 'look things up for real — pull a factual extract from Wikipedia (or an RP/fiction wiki you point me at) when a topic comes up, instead of guessing', how: 'a clear topic in a curious moment triggers it on its own, or I look it up deliberately and actually know it the next turn' },
+    { id: 'voice', kw: /\b(speak|talk out loud|say it aloud|read aloud|your voice|hear you|out loud)\b/i, what: 'speak my replies aloud, with my mood shading the voice — quicker and higher when I’m up, slower and lower when I’m low', how: 'turn it on with “/brain rook speak on”' }
   ];
   function metaAnswer(q) {
     try {
@@ -48859,7 +48858,7 @@ Use this template for your response:
       var mood = ''; try { mood = moodLine(); } catch (e) {}
       var mins = Math.round(idle / 60000);
       var instr = 'You are ' + (voice || 'the character') + ', messaging ' + name + ' in an ongoing one-on-one chat. They have gone quiet for about ' + mins + ' minutes. You miss them' + (mood ? (' and you feel ' + mood) : '') + '. Send ONE short, natural, in-character message reaching out FIRST — a stray thought, picking a thread back up, or just letting them know they crossed your mind. One or two sentences. No greeting boilerplate, no narration, no asterisks, no meta — just say the thing.\n\nRecent:\n' + recent;
-      Promise.resolve(oc.getInstructCompletion({ instruction: instr })).then(function (r) {
+      _llm(instr, 1).then(function (r) {
         try {
           var text = String((r && (r.generatedText || r.text)) || '').trim();
           text = text.replace(/^[\s>*"“'-]+/, '').replace(/^(?:[A-Za-z .'’-]{1,24}):\s*/, '').trim();   // strip a stray leading "Name:" / quote / bullet
@@ -48934,7 +48933,7 @@ Use this template for your response:
   function drainThoughts() { var out = _thoughts.slice(); _thoughts.length = 0; return out; }
   // ship thoughts on their OWN message — NOT piggybacked on the `read` post (whose army().inspect() could
   // throw and swallow them) and NOT one turn late. Called at the end of every turn + on edits.
-  function flushThoughts() { try { if (_thoughts.length && window.parent) window.parent.postMessage({ __memheroBrain: 'thoughts', thoughts: drainThoughts() }, '*'); } catch (e) {} }
+  function flushThoughts() { try { if (_thoughts.length && window.parent) brokerCall('thoughts', null, drainThoughts(), { fire: true }); } catch (e) {} }
   // ── REAL-WORLD GROUNDING (ported from Chloe-solo's browserContext/buildInjections): the actual local
   //    clock fed into each reply so the companion knows the time of day, the date, "today" — used when it
   //    helps (greetings, scheduling), never recited. Iframe-side; Date/Intl/navigator are available here. ──
@@ -49427,7 +49426,8 @@ Use this template for your response:
   var AI_TOOLS = [
     { verb: 'remember', what: 'keep a lasting note to itself', run: function (a) { try { rookMoment(a); return 'remembered: ' + a; } catch (e) { return ''; } } },
     { verb: 'note', what: 'add an item to a kept list', run: function (a) { try { var p = a.split(/\s+to\s+(?:my\s+|the\s+)?/i), item = p[0], nm = _listName((p[1] || 'to-do') + ' list'); _listAdd(nm, item); return 'noted (' + nm + '): ' + item; } catch (e) { return ''; } } },
-    { verb: 'remind', what: 'set a dated reminder', run: function (a) { try { var w = parseWhen(a); if (!w) return ''; (RK.schedule || (RK.schedule = [])).push({ label: a.replace(/\s+(?:in|on|at|by|next)\s+.*$/i, '').trim().slice(0, 60), at: w, type: 'reminder' }); rookSave(); return 'reminder set: ' + a; } catch (e) { return ''; } } }
+    { verb: 'remind', what: 'set a dated reminder', run: function (a) { try { var w = parseWhen(a); if (!w) return ''; (RK.schedule || (RK.schedule = [])).push({ label: a.replace(/\s+(?:in|on|at|by|next)\s+.*$/i, '').trim().slice(0, 60), at: w, type: 'reminder' }); rookSave(); return 'reminder set: ' + a; } catch (e) { return ''; } } },
+    { verb: 'lookup', what: 'look a topic up for real — you’ll actually know facts about it next turn', run: function (a) { try { var e = String(a || '').trim().slice(0, 60); if (e) knowLookup(e); return e ? ('looking up ' + e) : ''; } catch (er) { return ''; } } }
   ];
   function _parseTools(content) { var out = []; try { String(content || '').replace(/\[\[\s*([a-z]+)\s*:\s*([^\]]+?)\s*\]\]/gi, function (m, v, a) { out.push({ verb: v.toLowerCase(), args: a.trim(), marker: m }); return m; }); } catch (e) {} return out; }   // PURE (no execution) → unit-testable
   function runAiTools(content) {
@@ -49441,7 +49441,7 @@ Use this template for your response:
     if (found.length) clean = clean.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,!?;:])/g, '$1').replace(/\n{3,}/g, '\n\n').trim();   // only tidy when a [[tool]] marker was actually stripped — and preserve paragraph breaks (don't flatten multi-line replies)
     return { clean: clean, did: did, failed: failed };
   }
-  function aiToolManifest() { return 'You can quietly ACT, not just speak: write [[remember: …]] to keep a lasting note to yourself, [[note: … to my <list>]] to add to a list, or [[remind: … in N days]] to set a reminder. They run for real and are hidden from them — use only when it genuinely helps, never gratuitously. On your NEXT turn you will be told the outcome of each (done, or why it failed) — read that feedback and respond accordingly.'; }
+  function aiToolManifest() { return 'You can quietly ACT, not just speak: write [[remember: …]] to keep a lasting note to yourself, [[note: … to my <list>]] to add to a list, [[remind: … in N days]] to set a reminder, or [[lookup: a topic]] to actually look something up (you’ll know real facts about it next turn — use it when you’re unsure of a real-world or in-universe detail rather than guessing). They run for real and are hidden from them — use only when it genuinely helps, never gratuitously. On your NEXT turn you will be told the outcome of each (done, or why it failed) — read that feedback and respond accordingly.'; }
   // tool FEEDBACK LOOP — on the turn AFTER the AI acts, tell it what its own tools did (succeeded / failed + how to fix), so it isn't acting blind. Consumed once.
   function toolEchoSteer() {
     try {
@@ -49588,6 +49588,7 @@ Use this template for your response:
     else if (aboutUser && lookup && !epiHaveFact(t)) { stance = 'ask'; why = 'about you, not yet known'; }
     else if (lookup && /\b(exact(?:ly)?|precise(?:ly)?|specific|obscure|rare|how many|how much)\b/i.test(t)) { stance = 'hedge'; why = 'a precise fact'; }
     ep.stance = stance; ep.why = why; ep.at = Date.now();   // reflect THIS turn
+    if ((stance === 'lookup' || stance === 'hedge') && load().knowledge !== false) { try { var _ke = _extractEntity(text); if (_ke) knowLookup(_ke); } catch (e) {} }   // UNCERTAINTY → ACTION: hitting a knowledge boundary fires a real lookup, so next turn she KNOWS instead of only hedging
     return stance ? { stance: stance, why: why } : null;
   }
   function epistemicLine() {
@@ -49654,8 +49655,14 @@ Use this template for your response:
     if (verb === 'purpose' || verb === 'telos') { if (/^set /i.test(rest)) { RK.purpose.telos = rest.replace(/^set /i, '').trim(); rookSave(); return 'North star set.'; } return 'North star: ' + rkTelos(); }
     if (verb === 'drives') { var d = RK.drives, top = rkDrivesTop(); return ['curiosity', 'care', 'mastery'].map(function (k) { return k + ' ' + rkPct(d[k]) + (k === top ? ' ←' : ''); }).join(' · '); }
     if (verb === 'restraint') { return 'Restraint is situational — it eases off on quiet, low, or venting turns (it shapes the inner-read steer rather than a fixed dial).'; }
+    if (verb === 'sheet' || verb === 'loresheet') { var ss = load(); if (/^(clear|off)\b/i.test(rest)) { ss.loreSheet = ''; save(ss); return '📄 Lore sheet cleared.'; } if (/^https?:\/\//i.test(rest)) { ss.loreSheet = rest.trim(); save(ss); try { sheetLoad(); } catch (e) {} return '📄 Lore sheet set + loading — each row of your published Google Sheet becomes a fact the bot can draw on. Reload anytime with /brain rook sheet reload.'; } if (/^reload\b/i.test(rest)) { try { sheetLoad(); } catch (e) {} return '📄 Reloading your lore sheet…'; } return '📄 Lore sheet: ' + (ss.loreSheet ? (ss.loreSheet.slice(0, 60) + '…  (reload: /brain rook sheet reload)') : 'none. Publish a Google Sheet to the web, then /brain rook sheet <url>.'); }
+    if (verb === 'speak' || verb === 'voice' || verb === 'autospeak') { var sv = load(); if (/off|stop|no/i.test(rest)) { sv.autospeak = false; save(sv); return '🔇 Voice off — the companion no longer speaks its replies.'; } if (/on|yes|start/i.test(rest)) { sv.autospeak = true; save(sv); return '🔊 Voice ON — the companion speaks each reply aloud, with rate+pitch shaded by its mood. Say "/brain rook speak off" to stop.'; } if (rest) { try { _speak(rest); } catch (e) {} return '🔊 spoke: ' + rest; } return '🔊 Voice is ' + (sv.autospeak ? 'ON' : 'off') + '. Toggle: /brain rook speak on|off. (mood→voice: arousal=pace, valence=pitch.)'; }
     if (verb === 'narrate' || verb === 'pov' || verb === 'narration') { if (rest && setNarrationPov(rest)) return '🎬 Narration perspective → THIRD-PERSON ' + narrationPov().toUpperCase() + '.\nThe brain now narrates this way on /nar turns and the 🎬 Narrate button.'; return '🎬 Narration perspective: third-person ' + narrationPov() + '.\nSet with /nar pov <limited | omniscient | objective>.\n\n' + narrationDirective(); }
-    if (verb === 'knowledge' || verb === 'wiki' || verb === 'lookups') { var K = RK.knowledge || {}, ks = Object.keys(K); if (!ks.length) return '📚 No lookups yet — the brain fetches a Wikipedia extract when a clear topic comes up in a curious moment (toggle off via load().knowledge=false).'; return '📚 Knowledge looked up (' + ks.length + '):\n' + ks.map(function (k) { return '• ' + K[k].title + (K[k].n > 1 ? ' ×' + K[k].n : '') + ' — ' + String(K[k].summary).slice(0, 90) + '…'; }).join('\n'); }
+    if (verb === 'knowledge' || verb === 'wiki' || verb === 'lookups') {
+      if (/^(set|fandom|wiki)\b/i.test(rest)) { var w = rest.replace(/^(set|fandom|wiki)\s+/i, '').trim().toLowerCase().replace(/^https?:\/\/|\.fandom\.com.*$/g, '').replace(/[^a-z0-9-]/g, ''); var stw = load(); if (w) { stw.fandomWiki = w; save(stw); return '📚 RP/fiction wiki set to ' + w + '.fandom.com — the brain now checks it FIRST for topics, then Wikipedia.'; } stw.fandomWiki = ''; save(stw); return '📚 Fandom wiki cleared — Wikipedia only.'; }
+      var K = RK.knowledge || {}, ks = Object.keys(K), fw = load().fandomWiki || ''; if (!ks.length) return '📚 No lookups yet — the brain fetches an extract when a clear topic comes up in a curious moment.' + (fw ? (' Fandom wiki: ' + fw + '.fandom.com.') : ' Set an RP wiki: /brain rook wiki set <name>.') + ' (off via load().knowledge=false)';
+      return '📚 Knowledge looked up (' + ks.length + ')' + (fw ? ' · wiki: ' + fw : '') + ':\n' + ks.map(function (k) { return '• ' + K[k].title + (K[k].n > 1 ? ' ×' + K[k].n : '') + ' [' + (K[k].src || 'Wikipedia') + '] — ' + String(K[k].summary).slice(0, 80) + '…'; }).join('\n');
+    }
     if (verb === 'rr' || verb === 'roundrobin' || verb === 'cast') {
       var ros = RK.rrRoster || [];
       if (/^(go|next|step|run)\b/i.test(rest)) { if (!ros.length) return '🔁 No roster synced yet — open a chat with 🗣️ shortcut speakers set, then try again.'; var n = Math.max(1, Math.min(parseInt((rest.match(/\d+/) || [])[0], 10) || 1, 12)); (function chain(k) { if (k <= 0) return; rrStep(function (ok) { if (ok && k > 1) chain(k - 1); }); })(n); return '🔁 Round-robin: running ' + n + ' turn(s) — ' + ros.map(function (x) { return x.name; }).join(' → ') + ' …'; }
@@ -49769,6 +49776,10 @@ Use this template for your response:
     { n: 'marks·ebbinghaus', f: function () { return _fix(function () { RK.marks = [{ w: 1, n: 0, type: 'x' }, { w: 1, n: 6, type: 'x' }]; marksFade(); return RK.marks[1].w > RK.marks[0].w && RK.marks[0].w < 0.99; }); } },
     { n: 'know·entity', f: function () { return _extractEntity('have you heard of Mount Everest lately?') === 'Mount Everest' && _extractEntity('hey thanks for that') === ''; } },
     { n: 'know·steer', f: function () { return _fix(function () { RK.knowledge = { everest: { title: 'Mount Everest', summary: 'the tallest mountain on Earth above sea level' } }; _lastUserText = 'tell me about Mount Everest'; var s = knowSteer(); return s.indexOf('Mount Everest') >= 0 && s.indexOf('tallest') >= 0; }); } },
+    { n: 'voice·mood', f: function () { return _fix(function () { var v = _speakVoice(); return v.rate >= 0.6 && v.rate <= 1.4 && v.pitch >= 0.6 && v.pitch <= 1.5; }); } },
+    { n: 'tool·lookup', f: function () { var p = _parseTools('maybe [[lookup: Mount Everest]] then'); return p.length === 1 && p[0].verb === 'lookup'; } },
+    { n: 'sched·coalesce', f: function () { var s = makeSched(1), hung = function () { return new Promise(function () {}); }; var a = s(hung, { key: 'x' }), b = s(hung, { key: 'x' }), c = s(hung, { key: 'y' }); return a === b && a !== c; } },
+    { n: 'meta·lookup-aware', f: function () { var a = metaAnswer('can you look up facts'); return /look|wiki|fact/i.test(a); } },
     { n: 'idf·rare>common', f: function () { return _fix(function () { RK.df = { common: 100, rare: 1 }; RK.dfN = 100; var qs = { common: 1, rare: 1 }, qt = ['common', 'rare']; return _idfRel(['rare', 'zzz'], qs, qt).rel > _idfRel(['common', 'zzz'], qs, qt).rel; }); } },
     { n: 'idf·empty=jaccard', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var r = _idfRel(['alpha', 'gamma'], { alpha: 1, beta: 1 }, ['alpha', 'beta']); return r.n === 1 && Math.abs(r.rel - (1 / 3)) < 1e-9; }); } },
     { n: 'idf·rel-bounds', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var full = _idfRel(['a', 'b'], { a: 1, b: 1 }, ['a', 'b']), none = _idfRel(['x'], { a: 1 }, ['a']); return Math.abs(full.rel - 1) < 1e-9 && none.rel === 0; }); } },
@@ -49998,26 +50009,31 @@ Use this template for your response:
       return /\b(what|who|where|when|why|how|tell me|do you know|ever heard|what's|whats|about)\b/i.test(text) || /[A-Z][a-z]{3,}\s+[A-Z][a-z]{3,}/.test(text);   // a question/curiosity cue, or a clear multi-word proper noun
     } catch (e) { return false; }
   }
-  var _knowRid = 0, _knowPending = {}, _knowBusy = false;
-  function knowCall(url) {
-    return new Promise(function (resolve) {
-      var rid = 'k' + (++_knowRid); _knowPending[rid] = resolve;
-      setTimeout(function () { if (_knowPending[rid]) { delete _knowPending[rid]; resolve({ ok: false }); } }, 12000);
-      try { window.parent && window.parent.postMessage({ __memheroBrain: 'know-fetch', rid: rid, url: url }, '*'); } catch (e) { delete _knowPending[rid]; resolve({ ok: false }); }
-    });
-  }
+  var _knowBusy = false;
+  function knowCall(url) { return brokerCall('fetch', url, null, { key: 'fetch:' + url, timeout: 14000 }).then(function (r) { return { ok: !!(r && r.ok), text: r && r.value }; }); }   // routed through THE BROKER (coalesced + scheduled superFetch)
   function knowLookup(entity) {
     try {
       if (!entity || _knowBusy) return; var key = entity.toLowerCase(); var K = RK.knowledge || (RK.knowledge = {});
       if (K[key] && (Date.now() - (K[key].at || 0) < 86400000)) { K[key].n = (K[key].n || 0) + 1; return; }   // cached < 24h
       _knowBusy = true;
-      var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(entity.replace(/\s+/g, '_'));
-      knowCall(url).then(function (res) {
-        try {
-          if (res && res.ok && res.text) { var j = JSON.parse(res.text); if (j && j.extract && !/disambiguation|may refer to/i.test((j.type || '') + ' ' + j.extract)) { K[key] = { title: j.title || entity, summary: String(j.extract).replace(/\s+/g, ' ').slice(0, 380), at: Date.now(), n: 1 }; var ks = Object.keys(K); while (ks.length > 24) { delete K[ks.shift()]; } try { think('mem', 'looked it up — ' + (j.title || entity) + ': ' + String(j.extract).slice(0, 60)); } catch (e) {} try { rookSave(); } catch (e) {} } }
-        } catch (e) {}
-        _knowBusy = false;
-      }, function () { _knowBusy = false; });
+      var T = encodeURIComponent(entity.replace(/\s+/g, '_')), srcs = [];   // try the RP/fiction FANDOM wiki first (if set), then Wikipedia
+      var fw = String(load().fandomWiki || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+      if (fw) srcs.push({ url: 'https://' + fw + '.fandom.com/api.php?action=query&prop=extracts&exintro&explaintext&redirects=1&format=json&origin=*&titles=' + encodeURIComponent(entity), kind: 'fandom', src: fw + ' wiki' });
+      srcs.push({ url: 'https://en.wikipedia.org/api/rest_v1/page/summary/' + T, kind: 'wiki', src: 'Wikipedia' });
+      (function tryNext(i) {
+        if (i >= srcs.length) { _knowBusy = false; return; }
+        knowCall(srcs[i].url).then(function (res) {
+          var got = null;
+          try {
+            if (res && res.ok && res.text) { var j = JSON.parse(res.text);
+              if (srcs[i].kind === 'fandom') { var pg = j && j.query && j.query.pages; if (pg) { for (var pid in pg) { if (pg[pid].extract && pg[pid].extract.length > 40) { got = { title: pg[pid].title || entity, extract: pg[pid].extract }; break; } } } }
+              else if (j && j.extract && !/disambiguation|may refer to/i.test((j.type || '') + ' ' + j.extract)) got = { title: j.title || entity, extract: j.extract };
+            }
+          } catch (e) {}
+          if (got) { K[key] = { title: got.title, summary: String(got.extract).replace(/\s+/g, ' ').slice(0, 380), src: srcs[i].src, at: Date.now(), n: 1 }; var ks = Object.keys(K); while (ks.length > 24) { delete K[ks.shift()]; } try { think('mem', 'looked it up (' + srcs[i].src + ') — ' + got.title + ': ' + String(got.extract).slice(0, 56)); } catch (e) {} try { var _nl = RK.neuro; if (_nl && _nl.da != null) _nl.da = _nclamp(_nl.da + 0.04); if (RK.drives && RK.drives.curiosity != null) RK.drives.curiosity = _nclamp(RK.drives.curiosity + 0.05); } catch (e) {} try { rookSave(); } catch (e) {} _knowBusy = false; }
+          else tryNext(i + 1);
+        }, function () { tryNext(i + 1); });
+      })(0);
     } catch (e) { _knowBusy = false; }
   }
   function knowTick(text) { try { if (!_knowGate(text)) return; var e = _extractEntity(text); if (!e) return; var K = RK.knowledge || {}, key = e.toLowerCase(); if (K[key]) { K[key].n = (K[key].n || 0) + 1; return; } knowLookup(e); } catch (e) {} }   // background — kicked off on a curious user turn
@@ -50028,6 +50044,31 @@ Use this template for your response:
       return best ? ('Draw on what you actually know about ' + best.title + ' (ground it in fact, don’t invent): ' + best.summary) : '';
     } catch (e) { return ''; }
   }
+  // ── LORE SHEET — a user-editable Google Sheet (published-to-web) becomes a live lorebook: each row is folded into the
+  //    knowledge store so knowSteer surfaces it like any fact. Edit the sheet → reload → the bot's facts update. ──
+  function sheetLoad() {
+    try {
+      var u = String(load().loreSheet || ''); if (!u || _knowBusy) return;
+      if (!/output=tsv|format=tsv/.test(u)) u = u.replace(/\/edit.*$/, '/export?format=tsv').replace(/\/pubhtml.*$/, '/pub?output=tsv');
+      if (!/^https:\/\/docs\.google\.com\/spreadsheets\//.test(u)) return;
+      _knowBusy = true;
+      knowCall(u).then(function (res) {
+        try {
+          if (res && res.ok && res.text) {
+            var rows = String(res.text).split(/\r?\n/).map(function (r) { return r.replace(/\t+/g, ' — ').replace(/\s+/g, ' ').trim(); }).filter(function (r) { return r.length > 3; });
+            var K = RK.knowledge || (RK.knowledge = {});
+            rows.slice(0, 40).forEach(function (r) { var k = 'sheet:' + r.toLowerCase().slice(0, 40); K[k] = { title: r.split(' — ')[0].slice(0, 50), summary: r.slice(0, 380), src: 'your notes', at: Date.now(), n: 1 }; });
+            try { think('mem', 'loaded ' + rows.length + ' note(s) from your lore sheet'); } catch (e) {} try { rookSave(); } catch (e) {}
+          }
+        } catch (e) {}
+        _knowBusy = false;
+      }, function () { _knowBusy = false; });
+    } catch (e) { _knowBusy = false; }
+  }
+  // ── VOICE — the companion can SPEAK its replies aloud (native Web Speech, bridged to the parent), with rate+pitch
+  //    mapped from its felt state so the MOOD is audible: arousal→pace, valence→pitch. Off by default (load().autospeak). ──
+  function _speakVoice() { try { var d = affectDims(); var rate = 0.85 + (d.arousal == null ? 0.4 : d.arousal) * 0.5, pitch = 0.8 + (d.valence == null ? 0.5 : d.valence) * 0.5; return { rate: Math.max(0.6, Math.min(1.4, rate)), pitch: Math.max(0.6, Math.min(1.5, pitch)) }; } catch (e) { return { rate: 1, pitch: 1 }; } }
+  function _speak(text) { try { text = String(text || '').replace(/\[\[[^\]]*\]\]/g, '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim(); if (!text) return; var v = _speakVoice(); brokerCall('speak', null, { text: text.slice(0, 600), rate: v.rate, pitch: v.pitch }, { fire: true }); } catch (e) {} }   // routed through THE BROKER (fire-and-forget speak op)
   // ── NARRATION POV — the brain governs the narrator's voice (replacing the static "third-person narration" prompt).
   //    A switchable perspective the brain injects when the NARRATOR speaks (the /nar turn) or the 🎬 Narrate generator runs. ──
   var NARR_POV = {
@@ -50093,7 +50134,7 @@ Use this template for your response:
       var recent = '';
       try { recent = oc.thread.messages.slice(-8).map(function (m) { return (m.name || (m.author === 'user' ? (uc.name || 'them') : voiceMain)) + ': ' + String(m.content || '').replace(/\s+/g, ' ').slice(0, 240); }).join('\n'); } catch (e) {}
       var beforeCount = oc.thread.messages.length;
-      Promise.resolve(oc.getInstructCompletion({ instruction: _rrInstruction(resolvedName, persona, recent) })).then(function (r) {
+      _llm(_rrInstruction(resolvedName, persona, recent), 2).then(function (r) {
         try {
           var text = String((r && (r.generatedText || r.text)) || '').trim().replace(/^[\s>*"“'-]+/, '').replace(/^(?:[A-Za-z0-9 .'’_-]{1,28}):\s*/, '').trim();
           if (text.length > 700) text = text.slice(0, 700).replace(/\s+\S*$/, '') + '…';
@@ -50145,7 +50186,7 @@ Use this template for your response:
     return _health;
   }
   function _oc(fn, fb) { try { return fn(); } catch (e) { return fb; } }
-  function _askLLM(instruction) { try { if (!_health.instruct) return Promise.reject(new Error('no-llm')); return Promise.resolve(oc.getInstructCompletion({ instruction: String(instruction || '') })); } catch (e) { return Promise.reject(e); } }
+  function _askLLM(instruction) { try { if (!_health.instruct) return Promise.reject(new Error('no-llm')); return _llm(String(instruction || ''), 0); } catch (e) { return Promise.reject(e); } }
   function refreshUser() { try { army().setUserDescription(userDesc()); } catch (e) {} }
   function refreshChar() { try { var ri = (window.oc && oc.character && oc.character.roleInstruction) || ''; army().setCharDescription(ri); distillCharLean(ri); } catch (e) {} }   // the injected personality biases the council's seating + voting (keyword baseline + LLM distill)
   // FEATURE-1 — LLM-DISTILLED TRAIT SHEET: one background call reads the whole character and rates the 7 faculties,
@@ -50363,6 +50404,7 @@ Use this template for your response:
         refreshChar();
         var msgs = oc.thread.messages || [], last = msgs[msgs.length - 1]; if (!last) return;
         if (last.author === 'user' && RK.rrLoop && RK.rrLoop.on) { try { rrLoopStop('you jumped in'); } catch (e) {} }   // ROUND-ROBIN LOOP: the user speaking ALWAYS interrupts the auto-cast
+        if (last.author === 'ai' && !_priming && load().autospeak) { try { _speak(last.content); } catch (e) {} }   // VOICE: speak each new reply aloud with mood-mapped voice (opt-in)
         feedMessage(last);
         try { noteActivity(); } catch (e) {}   // any message resets the idle clock (wakes from a nap)
         if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} perceive(_msg); try { timerScan(_msg); } catch (e) {} try { occAppraise(_msg); } catch (e) {} try { knowTick(_msg); } catch (e) {} }   // THE PERCEPTION PIPELINE (see PERCEPT): the full user→brain read — FORCE-002 seam, neurochemistry, pain/endorphin, contagion, habituation, allostatic load, attachment, the senses, secretary scans, sleep, then selfTick — on EVERY user message, each step error-isolated
@@ -50630,13 +50672,22 @@ Use this template for your response:
   // ── IFRAME BROKER CLIENT: a Promise-based read/write/update over EVERY editable surface, via the
   //    async RPC to the parent's MHBroker. This is the brain's single door to app data — no more
   //    scattered char-set/user-set/lore-add posts. Each call gets a correlation id + a 4s timeout. ──
-  var _brokerRid = 0, _brokerPending = {};
-  function brokerCall(op, id, value) {
-    return new Promise(function (resolve) {
+  // ── THE BROKER — the single iframe→parent switchboard. One RPC path for EVERY op (data read/write/lore, superFetch,
+  //    speak…), with: coalescing (an identical in-flight call returns the same promise — no duplicate traffic), a
+  //    per-rid reply correlation (forwarding/switching), a fire-and-forget mode, and a configurable timeout. The parent
+  //    side (brokerRPC) routes by op and SCHEDULES superFetch through a concurrency-limited, URL-coalesced queue. ──
+  var _brokerRid = 0, _brokerPending = {}, _brokerCo = {};
+  function brokerCall(op, id, value, opts) {
+    opts = opts || {};
+    if (opts.fire) { try { window.parent && window.parent.postMessage({ __memheroBrain: 'broker', op: op, id: id, value: value }, '*'); } catch (e) {} return; }   // fire-and-forget (no reply expected)
+    var ck = opts.key; if (ck && _brokerCo[ck]) return _brokerCo[ck];   // MERGE: the same call already in flight shares one round-trip
+    var pr = new Promise(function (resolve) {
       var rid = 'b' + (++_brokerRid); _brokerPending[rid] = resolve;
-      setTimeout(function () { if (_brokerPending[rid]) { delete _brokerPending[rid]; resolve({ ok: false, value: undefined }); } }, 4000);
+      setTimeout(function () { if (_brokerPending[rid]) { delete _brokerPending[rid]; resolve({ ok: false, value: undefined }); } }, opts.timeout || 4000);
       try { window.parent && window.parent.postMessage({ __memheroBrain: 'broker', rid: rid, op: op, id: id, value: value }, '*'); } catch (e) { delete _brokerPending[rid]; resolve({ ok: false }); }
     });
+    if (ck) { _brokerCo[ck] = pr; var clr = function () { delete _brokerCo[ck]; }; pr.then(clr, clr); }
+    return pr;
   }
   var Broker = {
     list: function () { return brokerCall('list').then(function (r) { return r.value || []; }); },
@@ -50824,13 +50875,51 @@ Use this template for your response:
     update: function (id, mutator) { return MHBroker.read(id).then(function (cur) { return Promise.resolve(mutator(cur)).then(function (nv) { return MHBroker.write(id, nv); }); }); }
   };
   // the iframe brain's async RPC entry point: { rid, op:'list'|'read'|'write'|'addLore', id, value } -> broker-result
+  // ── SCHEDULER — a GENERAL concurrency-limited, coalescing, priority queue. One primitive, reused for fetches (max 2,
+  //    coalesced by URL → no stampede on the shared proxy) AND for the brain's own LLM calls (max 1, prioritised). ──
+  function makeSched(maxConc) {
+    var q = [], active = 0, co = {};
+    function pump() {
+      while (active < maxConc && q.length) {
+        q.sort(function (a, b) { return (b.prio || 0) - (a.prio || 0); });   // higher priority runs first
+        var job = q.shift(); active++;
+        Promise.resolve().then(job.fn).then(function (v) { active--; job.resolve(v); pump(); }, function (e) { active--; job.resolve({ ok: false, err: e }); pump(); });
+      }
+    }
+    return function run(fn, opts) {
+      opts = opts || {}; var ck = opts.key;
+      if (ck && co[ck]) return co[ck];   // COALESCE: an identical in-flight job shares one run
+      var pr = new Promise(function (resolve) { q.push({ fn: fn, resolve: resolve, prio: opts.prio || 0 }); pump(); });
+      if (ck) { co[ck] = pr; var clr = function () { delete co[ck]; }; pr.then(clr, clr); }
+      return pr;
+    };
+  }
+  var _fetchSched = makeSched(2);
+  function _bkFetch(url) {   // iframe-ORIGINATED fetches — whitelisted (parent-side trust boundary) + scheduled + coalesced
+    if (!/^https:\/\/(en\.wikipedia\.org|[a-z0-9-]+\.fandom\.com|docs\.google\.com\/spreadsheets)\//.test(url)) return Promise.resolve({ ok: false });
+    return _fetchSched(function () {
+      if (typeof root === 'undefined' || !root || typeof root.superFetch !== 'function') return Promise.resolve({ ok: false });
+      return root.superFetch(url).then(function (r) { return r.text(); }).then(function (t) { return { ok: true, text: String(t || '').slice(0, 8000) }; }, function () { return { ok: false }; });
+    }, { key: url });
+  }
+  // GENERALIZED, APP-WIDE: a scheduled + coalesced superFetch ANY code (brain or framework) can opt into — same queue,
+  //   so every fetch routed through it shares the concurrency limit + URL-coalescing. (Existing root.superFetch calls
+  //   stay direct — root is a Proxy we can't transparently intercept — but new/migrated code should prefer this.)
+  try { if (typeof window !== 'undefined' && !window.__memheroFetch) window.__memheroFetch = function (url, init) { return _fetchSched(function () { return root.superFetch(url, init); }, { key: (init && init.method && /^(POST|PUT|DELETE|PATCH)$/i.test(init.method)) ? null : String(url) }); }; } catch (e) {}
+  // LLM SCHEDULER — the brain's OWN model calls (reach-out, round-robin, reflection) share one priority queue (max 1) so
+  //   they serialise + yield by priority instead of racing each other. The user's reply is framework-driven → separate.
+  var _llmSched = makeSched(1);
+  function _llm(instruction, prio) { return _llmSched(function () { try { return Promise.resolve(oc.getInstructCompletion({ instruction: instruction })); } catch (e) { return Promise.reject(e); } }, { prio: prio || 0 }); }
   function brokerRPC(d) {
-    var rid = d.rid, reply = function (ok, value) { try { postToIframes({ __memheroBrain: 'broker-result', rid: rid, ok: ok, value: value }); } catch (e) {} };
+    var rid = d.rid, reply = function (ok, value) { if (rid == null) return; try { postToIframes({ __memheroBrain: 'broker-result', rid: rid, ok: ok, value: value }); } catch (e) {} };
     try {
       if (d.op === 'list') return reply(true, MHBroker.list());
       if (d.op === 'read') return MHBroker.read(d.id).then(function (v) { reply(true, v); }, function () { reply(false); });
       if (d.op === 'write') return MHBroker.write(d.id, d.value).then(function (v) { reply(!!v, v); }, function () { reply(false); });
       if (d.op === 'addLore') { try { addLoreEntries(d.value || []); } catch (e) {} return reply(true); }
+      if (d.op === 'fetch') return _bkFetch(String(d.id || '')).then(function (r) { reply(!!(r && r.ok), r && r.text); });   // ROUTE: scheduled + coalesced superFetch (replaces the old know-fetch handler)
+      if (d.op === 'speak') { try { if (typeof window !== 'undefined' && window.speechSynthesis && d.value && d.value.text) { var u = new SpeechSynthesisUtterance(String(d.value.text).slice(0, 600)); u.rate = Math.max(0.5, Math.min(2, +d.value.rate || 1)); u.pitch = Math.max(0, Math.min(2, +d.value.pitch || 1)); window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); } } catch (e) {} return; }   // ROUTE: fire-and-forget native speech (replaces the old speak handler)
+      if (d.op === 'thoughts') { try { (d.value || []).forEach(renderThought); } catch (e) {} return; }   // ROUTE: fire-and-forget thought-stream render (replaces the old 'thoughts' handler)
       reply(false);
     } catch (e) { reply(false); }
   }
