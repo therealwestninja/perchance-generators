@@ -47036,6 +47036,8 @@ Use this template for your response:
     'rr-go': function (d) { try { var n = Math.max(1, Math.min((d && d.n) || 1, 12)); (function chain(k) { if (k <= 0) return; rrStep(function (ok) { if (ok && k > 1) chain(k - 1); }); })(n); } catch (e) {} },   // ROUND-ROBIN: run the next n turns (brain generates + inserts each voice)
     'rr-loop': function (d) { try { rrLoopStart((d && d.max) || 40); } catch (e) {} },   // ROUND-ROBIN LOOP: run continuously until the user jumps in
     'rr-stop': function (d) { try { rrLoopStop('stopped'); } catch (e) {} },
+    'know-fetch': function (d) { try { var rid = d && d.rid, url = String((d && d.url) || ''); if (typeof root === 'undefined' || !root || typeof root.superFetch !== 'function' || !/^https:\/\/en\.wikipedia\.org\//.test(url)) { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: false }); return; } root.superFetch(url).then(function (r) { return r.text(); }).then(function (text) { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: true, text: String(text || '').slice(0, 8000) }); }, function () { postToIframes({ __memheroBrain: 'know-result', rid: rid, ok: false }); }); } catch (e) { try { postToIframes({ __memheroBrain: 'know-result', rid: (d && d.rid), ok: false }); } catch (e2) {} } },   // KNOWLEDGE: parent-only Wikipedia fetch (URL whitelisted to en.wikipedia.org — the iframe can't make us fetch anything else)
+    'know-result': function (d) { try { var p = _knowPending && _knowPending[d.rid]; if (p) { delete _knowPending[d.rid]; p({ ok: d.ok, text: d.text }); } } catch (e) {} },
     'manage-now': function (d) { try { manageProfileNow(); } catch (e) {} },   // /profile -> recompute + (re)write the user-data fields now
     broker: function (d) { brokerRPC(d); },   // the brain's unified read/write over every editable surface
     'broker-result': function (d) { try { var _bp = _brokerPending && _brokerPending[d.rid]; if (_bp) { delete _brokerPending[d.rid]; _bp({ ok: d.ok, value: d.value }); } } catch (e) {} },   // resolve a pending broker call
@@ -49256,7 +49258,8 @@ Use this template for your response:
     try { var lng = longingSteer(); if (lng) addBit(lng, P_MID); RK.longing = _nclamp((RK.longing || 0) * 0.4); } catch (e) {}   // HEARTBEAT: it missed them while idle — gladness on their return, then their presence eases the longing
     try { var drm = dreamSteer(); if (drm) addBit(drm, P_CORE); } catch (e) {}   // DREAM SURFACING: on return after a rest that dreamed, it can bring up what surfaced while they were away
     try { var chr = chronoSteer(); if (chr) addBit(chr, P_MID); } catch (e) {}   // CHRONO/SECRETARY: anticipate, remind, mark the day, follow up on dated events / birthdays / holidays
-    try { var sec = secretarySteer(t); if (sec) addBit(sec, P_GROUND, 'fact'); } catch (e) {}   // SECRETARY COMPUTE: exact math/date figures the brain calculated — GROUND tier, tagged 'fact' (suppresses any 'hedge')
+    try { var sec = secretarySteer(t); if (sec) addBit(sec, P_GROUND, 'fact'); } catch (e) {}
+    try { var kns = knowSteer(); if (kns) addBit(kns, P_CORE, 'fact'); } catch (e) {}   // KNOWLEDGE: ground the reply in a background-fetched Wikipedia fact about a topic in play   // SECRETARY COMPUTE: exact math/date figures the brain calculated — GROUND tier, tagged 'fact' (suppresses any 'hedge')
     try { var tmr = timerSteer(); if (tmr) addBit(tmr, P_GROUND, 'fact'); } catch (e) {}   // LIVE TIMER: a just-fired timer leads the reply (GROUND/fact); a still-running one is a soft note
     try { var lst = listSteer(); if (lst) addBit(lst, P_GROUND, 'fact'); } catch (e) {}   // SECRETARY LISTS: the real, kept list content to recite/confirm — GROUND tier, tagged 'fact'
     try { if (load().aiTools) { var tes = toolEchoSteer(); if (tes) addBit(tes, P_GROUND, 'fact'); } } catch (e) {}   // AI-TOOL FEEDBACK: the outcome of its OWN tool-calls from last turn (so it isn't acting blind) — GROUND/fact
@@ -49652,6 +49655,7 @@ Use this template for your response:
     if (verb === 'drives') { var d = RK.drives, top = rkDrivesTop(); return ['curiosity', 'care', 'mastery'].map(function (k) { return k + ' ' + rkPct(d[k]) + (k === top ? ' ←' : ''); }).join(' · '); }
     if (verb === 'restraint') { return 'Restraint is situational — it eases off on quiet, low, or venting turns (it shapes the inner-read steer rather than a fixed dial).'; }
     if (verb === 'narrate' || verb === 'pov' || verb === 'narration') { if (rest && setNarrationPov(rest)) return '🎬 Narration perspective → THIRD-PERSON ' + narrationPov().toUpperCase() + '.\nThe brain now narrates this way on /nar turns and the 🎬 Narrate button.'; return '🎬 Narration perspective: third-person ' + narrationPov() + '.\nSet with /nar pov <limited | omniscient | objective>.\n\n' + narrationDirective(); }
+    if (verb === 'knowledge' || verb === 'wiki' || verb === 'lookups') { var K = RK.knowledge || {}, ks = Object.keys(K); if (!ks.length) return '📚 No lookups yet — the brain fetches a Wikipedia extract when a clear topic comes up in a curious moment (toggle off via load().knowledge=false).'; return '📚 Knowledge looked up (' + ks.length + '):\n' + ks.map(function (k) { return '• ' + K[k].title + (K[k].n > 1 ? ' ×' + K[k].n : '') + ' — ' + String(K[k].summary).slice(0, 90) + '…'; }).join('\n'); }
     if (verb === 'rr' || verb === 'roundrobin' || verb === 'cast') {
       var ros = RK.rrRoster || [];
       if (/^(go|next|step|run)\b/i.test(rest)) { if (!ros.length) return '🔁 No roster synced yet — open a chat with 🗣️ shortcut speakers set, then try again.'; var n = Math.max(1, Math.min(parseInt((rest.match(/\d+/) || [])[0], 10) || 1, 12)); (function chain(k) { if (k <= 0) return; rrStep(function (ok) { if (ok && k > 1) chain(k - 1); }); })(n); return '🔁 Round-robin: running ' + n + ' turn(s) — ' + ros.map(function (x) { return x.name; }).join(' → ') + ' …'; }
@@ -49763,6 +49767,8 @@ Use this template for your response:
     { n: 'rr·loop-reset', f: function () { return _fix(function () { RK.rrRoster = [{ name: 'A' }, { name: 'B' }]; RK.rrState = { A: { at: Date.now(), loop: true } }; _rrMark({ name: 'B' }); return RK.rrState.A.loop === false && RK.rrState.B.loop === false; }); } },
     { n: 'calib·brier', f: function () { return _fix(function () { RK.calib = { log: [{ c: 0.9, o: 1 }, { c: 0.9, o: 1 }, { c: 0.8, o: 0 }] }; var s = _brierLine(); return s.indexOf('Brier') >= 0 && /0\.\d/.test(s); }); } },
     { n: 'marks·ebbinghaus', f: function () { return _fix(function () { RK.marks = [{ w: 1, n: 0, type: 'x' }, { w: 1, n: 6, type: 'x' }]; marksFade(); return RK.marks[1].w > RK.marks[0].w && RK.marks[0].w < 0.99; }); } },
+    { n: 'know·entity', f: function () { return _extractEntity('have you heard of Mount Everest lately?') === 'Mount Everest' && _extractEntity('hey thanks for that') === ''; } },
+    { n: 'know·steer', f: function () { return _fix(function () { RK.knowledge = { everest: { title: 'Mount Everest', summary: 'the tallest mountain on Earth above sea level' } }; _lastUserText = 'tell me about Mount Everest'; var s = knowSteer(); return s.indexOf('Mount Everest') >= 0 && s.indexOf('tallest') >= 0; }); } },
     { n: 'idf·rare>common', f: function () { return _fix(function () { RK.df = { common: 100, rare: 1 }; RK.dfN = 100; var qs = { common: 1, rare: 1 }, qt = ['common', 'rare']; return _idfRel(['rare', 'zzz'], qs, qt).rel > _idfRel(['common', 'zzz'], qs, qt).rel; }); } },
     { n: 'idf·empty=jaccard', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var r = _idfRel(['alpha', 'gamma'], { alpha: 1, beta: 1 }, ['alpha', 'beta']); return r.n === 1 && Math.abs(r.rel - (1 / 3)) < 1e-9; }); } },
     { n: 'idf·rel-bounds', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var full = _idfRel(['a', 'b'], { a: 1, b: 1 }, ['a', 'b']), none = _idfRel(['x'], { a: 1 }, ['a']); return Math.abs(full.rel - 1) < 1e-9 && none.rel === 0; }); } },
@@ -49972,6 +49978,56 @@ Use this template for your response:
   }
   function rrLoopStart(max) { try { if (!(RK.rrRoster && RK.rrRoster.length)) return false; RK.rrLoop = { on: true, turns: 0, max: Math.max(2, Math.min(max || 40, 100)) }; RK.rrState = {}; if (_rrLoopTimer) clearTimeout(_rrLoopTimer); _rrLoopTimer = setTimeout(rrLoopTick, 200); try { think('cog', 'round-robin loop — the cast carries on until you jump in'); } catch (e) {} return true; } catch (e) { return false; } }
   function rrLoopStop(reason) { try { if (RK.rrLoop) RK.rrLoop.on = false; if (_rrLoopTimer) { clearTimeout(_rrLoopTimer); _rrLoopTimer = null; } if (reason) try { think('cog', 'round-robin loop stopped — ' + reason); } catch (e) {} } catch (e) {} }
+  // ── KNOWLEDGE LOOKUP — when a salient entity comes up in a CURIOUS/topical moment, the brain fetches a Wikipedia
+  //    extract in the BACKGROUND (zero reply-latency, like reflectOffline), caches it, and grounds later replies in it
+  //    instead of hallucinating. Bridged through the parent (which has root.superFetch); the brain has no direct net. ──
+  var _KNOW_STOP = { 'the': 1, 'this': 1, 'that': 1, 'there': 1, 'they': 1, 'them': 1, 'then': 1, 'your': 1, 'you': 1, 'and': 1, 'but': 1, 'for': 1, 'not': 1, 'are': 1, 'was': 1, 'were': 1, 'yes': 1, 'yeah': 1, 'okay': 1, 'well': 1, 'hey': 1, 'hello': 1, 'thanks': 1, 'sorry': 1, 'monday': 1, 'tuesday': 1, 'wednesday': 1, 'thursday': 1, 'friday': 1, 'saturday': 1, 'sunday': 1, 'january': 1, 'february': 1, 'march': 1, 'april': 1, 'june': 1, 'july': 1, 'august': 1, 'september': 1, 'october': 1, 'november': 1, 'december': 1, 'god': 1, 'lol': 1 };
+  function _extractEntity(text) {   // the most salient proper-noun phrase in the message (heuristic — capitalised runs, multi-word preferred)
+    try {
+      var t = String(text || ''); if (t.length < 4) return '';
+      var m = t.match(/\b[A-Z][a-z]{2,}(?:\s+(?:of\s+|the\s+|de\s+|von\s+)?[A-Z][a-z]{2,}){0,3}\b/g) || [];
+      var cands = m.map(function (w) { return w.trim(); }).filter(function (w) { return w.length >= 4 && !_KNOW_STOP[w.toLowerCase()] && !/^\W/.test(w); });
+      cands.sort(function (a, b) { return (b.split(/\s+/).length - a.split(/\s+/).length) || (b.length - a.length); });
+      return cands[0] || '';
+    } catch (e) { return ''; }
+  }
+  function _knowGate(text) {   // only in CURIOUS/topical moments — never during threat, venting, or heavy lows
+    try {
+      if (load().knowledge === false) return false;
+      var d = affectDims(); if ((d.threat || 0) > 0.4) return false; if ((d.valence == null ? 0.5 : d.valence) < 0.32) return false;
+      return /\b(what|who|where|when|why|how|tell me|do you know|ever heard|what's|whats|about)\b/i.test(text) || /[A-Z][a-z]{3,}\s+[A-Z][a-z]{3,}/.test(text);   // a question/curiosity cue, or a clear multi-word proper noun
+    } catch (e) { return false; }
+  }
+  var _knowRid = 0, _knowPending = {}, _knowBusy = false;
+  function knowCall(url) {
+    return new Promise(function (resolve) {
+      var rid = 'k' + (++_knowRid); _knowPending[rid] = resolve;
+      setTimeout(function () { if (_knowPending[rid]) { delete _knowPending[rid]; resolve({ ok: false }); } }, 12000);
+      try { window.parent && window.parent.postMessage({ __memheroBrain: 'know-fetch', rid: rid, url: url }, '*'); } catch (e) { delete _knowPending[rid]; resolve({ ok: false }); }
+    });
+  }
+  function knowLookup(entity) {
+    try {
+      if (!entity || _knowBusy) return; var key = entity.toLowerCase(); var K = RK.knowledge || (RK.knowledge = {});
+      if (K[key] && (Date.now() - (K[key].at || 0) < 86400000)) { K[key].n = (K[key].n || 0) + 1; return; }   // cached < 24h
+      _knowBusy = true;
+      var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(entity.replace(/\s+/g, '_'));
+      knowCall(url).then(function (res) {
+        try {
+          if (res && res.ok && res.text) { var j = JSON.parse(res.text); if (j && j.extract && !/disambiguation|may refer to/i.test((j.type || '') + ' ' + j.extract)) { K[key] = { title: j.title || entity, summary: String(j.extract).replace(/\s+/g, ' ').slice(0, 380), at: Date.now(), n: 1 }; var ks = Object.keys(K); while (ks.length > 24) { delete K[ks.shift()]; } try { think('mem', 'looked it up — ' + (j.title || entity) + ': ' + String(j.extract).slice(0, 60)); } catch (e) {} try { rookSave(); } catch (e) {} } }
+        } catch (e) {}
+        _knowBusy = false;
+      }, function () { _knowBusy = false; });
+    } catch (e) { _knowBusy = false; }
+  }
+  function knowTick(text) { try { if (!_knowGate(text)) return; var e = _extractEntity(text); if (!e) return; var K = RK.knowledge || {}, key = e.toLowerCase(); if (K[key]) { K[key].n = (K[key].n || 0) + 1; return; } knowLookup(e); } catch (e) {} }   // background — kicked off on a curious user turn
+  function knowSteer() {
+    try {
+      var K = RK.knowledge || {}, qs = _toks(_lastUserText || ''), best = null, bn = 0; if (!qs.length) return '';
+      for (var k in K) { var kt = _toks(K[k].title || k), n = 0; for (var i = 0; i < kt.length; i++) if (qs.indexOf(kt[i]) >= 0) n++; if (n >= 1 && n > bn) { bn = n; best = K[k]; } }
+      return best ? ('Draw on what you actually know about ' + best.title + ' (ground it in fact, don’t invent): ' + best.summary) : '';
+    } catch (e) { return ''; }
+  }
   // ── NARRATION POV — the brain governs the narrator's voice (replacing the static "third-person narration" prompt).
   //    A switchable perspective the brain injects when the NARRATOR speaks (the /nar turn) or the 🎬 Narrate generator runs. ──
   var NARR_POV = {
@@ -50309,7 +50365,7 @@ Use this template for your response:
         if (last.author === 'user' && RK.rrLoop && RK.rrLoop.on) { try { rrLoopStop('you jumped in'); } catch (e) {} }   // ROUND-ROBIN LOOP: the user speaking ALWAYS interrupts the auto-cast
         feedMessage(last);
         try { noteActivity(); } catch (e) {}   // any message resets the idle clock (wakes from a nap)
-        if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} perceive(_msg); try { timerScan(_msg); } catch (e) {} try { occAppraise(_msg); } catch (e) {} }   // THE PERCEPTION PIPELINE (see PERCEPT): the full user→brain read — FORCE-002 seam, neurochemistry, pain/endorphin, contagion, habituation, allostatic load, attachment, the senses, secretary scans, sleep, then selfTick — on EVERY user message, each step error-isolated
+        if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} perceive(_msg); try { timerScan(_msg); } catch (e) {} try { occAppraise(_msg); } catch (e) {} try { knowTick(_msg); } catch (e) {} }   // THE PERCEPTION PIPELINE (see PERCEPT): the full user→brain read — FORCE-002 seam, neurochemistry, pain/endorphin, contagion, habituation, allostatic load, attachment, the senses, secretary scans, sleep, then selfTick — on EVERY user message, each step error-isolated
         pushState('read', { read: army().inspect(), mood: moodLine() });   // live read + feeling, every turn (state-push factory)
         try { flushThoughts(); } catch (e) {}   // ship the perceptual thoughts NOW — before the await-laden, toggle-gated reply branch (so the feed lives even if steering is off or decide() throws)
         var s = load(), base = stripBrain(oc.character.reminderMessage);
