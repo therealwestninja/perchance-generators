@@ -46500,6 +46500,7 @@ Use this template for your response:
         var hasMat = false; for (var k in material) { hasMat = true; break; }
         var vctx = hasMat ? Object.assign({}, ctx, { material: material }) : ctx;
         var proposals = live.map(function (m) { var it = m.intend(vctx, vibe); return { by: it.by, text: it.kind, conf: it.strength, intent: it }; });
+        try { if (load().settle) settleProposals(proposals, live); } catch (e) {}   // NEURON-MINING (A): recurrent lateral bond-settling before the vote — OFF by default (/brain rook settle on)
         var ballots = live.map(function (m) { var sc = {}; proposals.forEach(function (p) { sc[p.by] = jitter(m.voteIntent(p.intent, vctx) * weightOf(p.by, vibe)); }); return { voter: m.self.id, scores: sc }; });
         // each mind may BLOCK a proposal it guards against (conscience/instinct); the Society resolves the vetoes.
         var vetoes = [];
@@ -47154,6 +47155,7 @@ Use this template for your response:
       if (load().rook === false) return null;
       return {
         need: (RK.agency && RK.agency.need) || '',
+        topic: (RK.topic && RK.topic.now) ? RK.topic.now : '',   // WORLD MODEL: what we're on right now
         bondStage: bondStage(), bondTrust: (RK.bond && RK.bond.trust) || 0.5, bondTrend: bondTrend(),
         sentinel: (RK.sentinel && RK.sentinel.category && Date.now() - RK.sentinel.at < 60000) ? RK.sentinel.category : '',
         salience: (RK.salience && RK.salience.level && Date.now() - RK.salience.at < 30000) ? RK.salience.reason : '',
@@ -47260,7 +47262,7 @@ Use this template for your response:
       n.gaba = _nclamp(0.3 + 0.5 * n.sero + 0.25 * s.energy - 0.45 * s.tension - 0.3 * cort);         // GABA ~ inhibitory brake (eroded by stress + fatigue → disinhibition)
       var h = RK.hormone; if (h) { h.oxytocin = _nclamp((h.oxytocin == null ? 0.2 : h.oxytocin) * 0.97 + (warm ? 0.09 : 0) + 0.02 * (trust - 0.5)); }   // oxytocin: bonding/closeness — rises with warmth, slow
       if (h) { var _bondCold = (typeof ROOK_COLD !== 'undefined' && ROOK_COLD.test(String(t || ''))) || (typeof ROOK_REJECT !== 'undefined' && ROOK_REJECT.test(String(t || ''))); h.vasopressin = _nclamp((h.vasopressin == null ? 0.2 : h.vasopressin) * 0.98 + 0.02 * trust + (_bondCold && trust > 0.5 ? 0.16 : 0)); }   // vasopressin: pair-bonding — builds slowly with trust, SPIKES when a strong bond feels threatened (guarding)
-      _selfRegard = _nclamp(_selfRegard * 0.88 + (ROOK_PRAISE.test(String(t || '')) ? 0.4 : 0));      // self-regard (→ pride/vanity), bumped by praise, decays
+      _selfRegard = _nclamp(_selfRegard * 0.88 + 0.06 + (ROOK_PRAISE.test(String(t || '')) ? 0.4 : 0));      // self-regard decays toward a NEUTRAL 0.5 baseline (0.88x+0.06 → 0.5), not toward 0; praise lifts it (→ pride/vanity), bumped by praise, decays
       _lastSurprise = err; rookSave();
       try { if (s.energy < 0.28) think('mood', 'feeling worn down — low on energy'); if (err > 0.72) think('flow', 'that caught me off guard'); else if (s.tension > 0.62) think('mood', 'feeling the tension climb'); } catch (e) {}
       return err;
@@ -47295,7 +47297,7 @@ Use this template for your response:
   //    neurochemistry + bond + oxytocin → valence / arousal / intimacy / threat / self-regard, mapped to a
   //    discrete emotion that drives the mood line, the console, AND the reply (reactions to the user). The
   //    user's turn flows in through the chemicals (neuroTick reads warmth/threat/tension off the message). ──
-  var _lastEmotion = '', _selfRegard = 0;
+  var _lastEmotion = '', _selfRegard = 0.5;   // NEUTRAL baseline (was 0 → dominance pinned at −1.00 "powerless" on a fresh wake + decaying back there absent praise)
   var ROOK_PRAISE = /\b(good (?:job|girl|boy|work)|well done|you('?re| are) (?:amazing|wonderful|great|the best|incredible|brilliant|so (?:smart|clever|good|sweet))|so (?:smart|clever|talented)|proud of you|nailed it|love (?:this|that|you)|you did (?:so )?(?:good|great|well))\b/i;
   function affectDims() {
     var n = RK.neuro || {}, s = RK.soma || {}, h = RK.hormone || {}, b = RK.bond || {};
@@ -48552,12 +48554,16 @@ Use this template for your response:
       }, function () { R.at = Date.now(); _reflectBusy = false; });   // on reject: back off (so it doesn't hammer) + clear busy
     } catch (e) { _reflectBusy = false; }
   }
+  var _lastGardenAt = 0, _lastImagineAt = 0;
   function heartbeat() {
     try {
       var now = Date.now(), idle = now - _lastMsgAt; _lastBeatAt = now;
       var sl = RK.sleep, resting = !!(sl && sl.phase && sl.phase !== 'awake');
       if (idle < 45000) return;   // only live autonomously once you've been quiet a little while
       try { reflectOffline(); } catch (e) {}   // OFFLINE REFLECTION: one gated LLM insight during idle (zero reply-path latency)
+      try { if (now - _lastGardenAt > 600000) { _lastGardenAt = now; knowGarden(); } } catch (e) {}   // KNOWLEDGE ECOLOGY: prune stale unused facts during idle (~10-min cadence)
+      try { observe(); } catch (e) {}   // OBSERVER + SELF-REPAIR: read subsystem vitals + fire bounded repairs (own 2-min cooldown)
+      try { if (now - _lastImagineAt > 480000) { _lastImagineAt = now; imagine(); } } catch (e) {}   // IMAGINATION: a forward "what-if" during idle (~8-min cadence) — feeds curiosity + the proactive opener
       // the body runs on its own time
       try {
         var s = RK.soma, n = RK.neuro, h = RK.hormone, M = RK.metab;
@@ -48857,14 +48863,15 @@ Use this template for your response:
       try { recent = oc.thread.messages.slice(-6).map(function (m) { return (m.author === 'user' ? name : (voice || 'you')) + ': ' + String(m.content || '').slice(0, 200); }).join('\n'); } catch (e) {}
       var mood = ''; try { mood = moodLine(); } catch (e) {}
       var mins = Math.round(idle / 60000);
-      var instr = 'You are ' + (voice || 'the character') + ', messaging ' + name + ' in an ongoing one-on-one chat. They have gone quiet for about ' + mins + ' minutes. You miss them' + (mood ? (' and you feel ' + mood) : '') + '. Send ONE short, natural, in-character message reaching out FIRST — a stray thought, picking a thread back up, or just letting them know they crossed your mind. One or two sentences. No greeting boilerplate, no narration, no asterisks, no meta — just say the thing.\n\nRecent:\n' + recent;
+      var _seed = ''; try { var _Iq = RK.imaginings || []; if (_Iq.length && Date.now() - (_Iq[_Iq.length - 1].at || 0) < 1800000) _seed = _Iq[_Iq.length - 1].t; } catch (e) {}   // IMAGINATION → proactive opener: a recent idle "what-if" can seed the reach-out
+      var instr = 'You are ' + (voice || 'the character') + ', messaging ' + name + ' in an ongoing one-on-one chat. They have gone quiet for about ' + mins + ' minutes. You miss them' + (mood ? (' and you feel ' + mood) : '') + '. Send ONE short, natural, in-character message reaching out FIRST — a stray thought, picking a thread back up, or just letting them know they crossed your mind. One or two sentences. No greeting boilerplate, no narration, no asterisks, no meta — just say the thing.' + (_seed ? ('\n\nA thought you’ve been turning over while they were away: ' + _seed + '. You can open from there if it feels natural.') : '') + '\n\nRecent:\n' + recent;
       _llm(instr, 1).then(function (r) {
         try {
           var text = String((r && (r.generatedText || r.text)) || '').trim();
           text = text.replace(/^[\s>*"“'-]+/, '').replace(/^(?:[A-Za-z .'’-]{1,24}):\s*/, '').trim();   // strip a stray leading "Name:" / quote / bullet
           if (text.length > 600) text = text.slice(0, 600).replace(/\s+\S*$/, '') + '…';
           if (!text || oc.thread.messages.length !== beforeCount || _lastMsgAt !== beforeMsgAt) { _reaching = false; return; }   // they came back while composing → abort (no stale "you there?")
-          oc.thread.messages.push({ author: 'ai', content: text });
+          oc.thread.messages.push({ author: 'ai', content: _clean(text) });
           try { if (typeof oc.pushDataChanges === 'function') oc.pushDataChanges(); } catch (e) {}   // flush now (else the 100ms poll syncs it)
           s.lastReachAt = Date.now(); s.reachTries = (s.reachTries || 0) + 1;
           RK.longing = _nclamp((RK.longing || 0) - 0.4);   // reaching out eases the missing
@@ -49207,6 +49214,7 @@ Use this template for your response:
     think('cog', ambientThought());   // a heartbeat of cognition — vocab varies with the brain's current state
     try { bondSnapshot(); if (ROOK_POS.test(t)) bondNudge(0.01); else if (ROOK_VENT.test(t)) bondNudge(0.02); } catch (e) {}   // trust eases up on warmth + shared vulnerability
     try { _idfBump(_toks(t)); } catch (e) {}   // MEMORY: accrue corpus doc-frequency so recall relevance can IDF-weight rare shared tokens
+    try { topicTick(t); var _tl = topicLine(); if (_tl) addBit(_tl, P_CORE, 'topic'); } catch (e) {}   // WORLD MODEL: track the active topic + surface a continuity/shift cue
     try { var _jot = '', _jw = 0.5, _jk = ''; if (RK.salience && (RK.salience.level || 0) > 0.4 && Date.now() - (RK.salience.at || 0) < 30000 && RK.salience.reason) { _jot = 'noticed ' + RK.salience.reason; _jw = RK.salience.level; _jk = 'salience'; } else if (RK.occ && (RK.occ.intensity || 0) > 0.3) { _jot = 'felt ' + (RK.occ.emotion || 'something') + ' as ' + (RK.occ.need || 'a goal') + ' ' + (RK.occ.dir > 0 ? 'lifted' : 'slipped'); _jw = RK.occ.intensity; _jk = 'occ'; } else if (typeof _profileHit !== 'undefined' && _profileHit) { _jot = 'holding in mind: ' + _profileHit; _jw = 0.7; _jk = 'profile'; } else if (typeof _loopHit !== 'undefined' && _loopHit) { _jot = 'they’re waiting on: ' + _loopHit; _jw = 0.8; _jk = 'loop'; } if (_jot) scratchNote(_jot, _jw, _jk); } catch (e) {}   // SCRATCHPAD: jot the turn's single most salient note (weighted by its strength + tagged by kind, so it can be managed/pruned)
     try { if (RK.intuit && Math.abs(RK.intuit.pull || 0) > 0.3 && Date.now() - (RK.intuit.at || 0) < 60000) RK.lastGut = RK.intuit.label; } catch (e) {}   // CLARION: remember the active gut read, to credit it on the next reaction
     try { var _dpMix = metaArbitrate(t);   // DUAL-PROCESS ARBITRATION (CLARION): high stakes/uncertainty force deliberation; low-stakes time-pressure trusts the gut
@@ -49219,6 +49227,15 @@ Use this template for your response:
     try { salienceScan(t); var sa = salienceLine(); if (sa) { addBit(sa, P_CORE); think('flow', (RK.salience && RK.salience.reason) || 'something shifted'); } } catch (e) {}   // surprise — orient to a sudden shift
     try { agencyTick(t); var al = agencyLine(); if (al) addBit(al, P_CORE); } catch (e) {}   // the goal she's pursuing for her strongest current need leads the read
     try { var bl = bondLine(); if (bl) addBit(bl, P_CORE); } catch (e) {}   // the relationship's arc — speak from the history
+    try { if (RK.observer && (RK.observer.hedgeBoost || 0) > 0.3) addBit('you’ve been on shaky ground lately — verify before you assert, and say plainly when you’re unsure', P_GUARD, 'hedge'); } catch (e) {}   // SELF-REPAIR feeds the steer: a low-confidence streak raises caution until grounded again
+    try { var _pl = pinLine(); if (_pl) addBit(_pl, P_CORE, 'pin'); } catch (e) {}   // PINS: user-curated lines ride along so she can call back to them
+    try { var _tb = (RK.alignment && RK.alignment.steerTuningBias) || {}; if ((_tb.ground || 0) > 0.3) addBit('be exact with any facts you were handed this turn — recent replies drifted from them; use them, don’t invent or embellish', P_GROUND, 'tune-ground'); if ((_tb.voice || 0) > 0.3) addBit('stay strictly in your own voice — recent replies slipped out of character', P_GUARD, 'tune-voice'); if ((_tb.hedge || 0) > 0.3) addBit('when you’re uncertain, flag it in plain words — recent replies stated shaky things too flatly', P_GUARD, 'hedge'); } catch (e) {}   // AFFERENT: self-tightening — stiffen the dimensions the model keeps fumbling
+    try { var _gl = goalLine(); if (_gl) addBit(_gl, P_MID, 'goal'); } catch (e) {}   // GOALS: a carried commitment gently shapes what she steers toward
+    try { var _act = chooseAction(t); if (_act === 'clarify') addBit('this ask is underspecified — a single sharp clarifying question serves them better than guessing; ask it warmly, then deliver', P_META, 'clarify'); if (_act !== 'answer' && RK.action) think('cog', 'chose to ' + _act + ' — ' + RK.action.why); } catch (e) {}   // EXECUTIVE: arbitrate ONE primary posture; only 'clarify' adds a steer (others already steered) — name the choice for legibility
+    try { var _rg = registerSteer(t); if (_rg) addBit(_rg, P_CORE, 'register'); } catch (e) {}   // VOCAB/CONV: match the user's register + length
+    try { var _vy = varietySteer(); if (_vy) addBit(_vy, P_MID, 'variety'); } catch (e) {}        // VOCAB: don't repeat recent openers — keep it fresh
+    try { var _fu = followupSteer(t); if (_fu) addBit(_fu, P_CORE, 'followup'); } catch (e) {}     // CONV: deepen a genuine share with one real follow-up question
+    try { concernTick(t); var _cn = concernSteer(); if (_cn) addBit(_cn, P_META, 'concern'); } catch (e) {}   // NEURON-MINING (B): a building sub-acute unease, accumulated across turns, surfaces as a check-in
     if (ROOK_VENT.test(t)) addBit('they want to be heard, not fixed — hold back advice; serve the long arc, not just the moment', P_CORE);
     else if (ROOK_NEG.test(t) && !ROOK_POS.test(t)) addBit('they seem low; be gentle and brief', P_CORE);
     if (/\?\s*$/.test(t) || ROOK_POS.test(t)) addBit('bring something of your own — a want, a curiosity, a direction', P_MID, 'initiate');
@@ -49305,6 +49322,7 @@ Use this template for your response:
     //    by tag BEFORE they reach the prompt, so the brain never speaks out of both sides of its mouth in one breath. ──
     var _preResolve = _abits.map(function (b) { return { t: b.t, p: b.p, g: b.g }; });   // snapshot BEFORE conflict-resolution, for the /brain rook steer inspector
     _abits = _resolveBits(_abits);   // pure, testable conflict-resolution stage (see _resolveBits)
+    try { _lastSteer = { facts: [], hedge: false, at: Date.now(), consumed: false }; for (var _lb = 0; _lb < _abits.length; _lb++) { var _bb = _abits[_lb]; if (_bb.g === 'fact') _lastSteer.facts.push(_bb.t); else if (_bb.g === 'hedge') _lastSteer.hedge = true; } } catch (e) {}   // AFFERENT: retain this turn's grounded facts + hedge demand to score the reply against next turn
     _abits.sort(function (a, b) { return (b.p - a.p) || (a.q - b.q); });   // tier desc; stable by insertion order within a tier (explicit, so it doesn't depend on Array.sort stability)
     // GWT IGNITION: when a genuine override-state bit (ACUTE band, beneath the SELF wrapper) is present, mark it so it dominates the broadcast
     //   rather than reading as one of twelve equal clauses. Fresh/neutral turns have no ACUTE bit → no ignition → behaviour unchanged.
@@ -49326,7 +49344,7 @@ Use this template for your response:
   RK.parliament = RK.parliament || { hansard: [], pending: [], seq: 0 };
   RK.drives = RK.drives || { curiosity: 0.4, care: 0.4, mastery: 0.4 };
   RK.credit = RK.credit || {};
-  RK.dreams = RK.dreams || []; RK.moments = RK.moments || []; RK.lessons = RK.lessons || []; RK.beliefs = RK.beliefs || {};   // RK.lessons: Reflexion lessons · RK.beliefs: NARS ⟨f,c⟩ beliefs about the user
+  RK.dreams = RK.dreams || []; RK.imaginings = RK.imaginings || []; RK.moments = RK.moments || []; RK.lessons = RK.lessons || []; RK.beliefs = RK.beliefs || {};   // RK.lessons: Reflexion lessons · RK.beliefs: NARS ⟨f,c⟩ beliefs about the user
   RK.df = RK.df || {}; RK.dfN = RK.dfN || 0;   // streaming corpus doc-frequency for IDF-weighted recall relevance (empty → IDF=1 → behaves as plain Jaccard)
   RK.faculty = RK.faculty || {};   // P1: per-faculty reliability {rel,n} — earned by being on the winning side of well-received replies
   RK.quality = RK.quality || { ema: 0.5, n: 0 };   // Sprint 8 reward bus: running "how am I doing" from reaction valence
@@ -49357,6 +49375,13 @@ Use this template for your response:
   RK.hpa = RK.hpa || { chronic: 0, burnout: 0 };   // HPA STRESS AXIS — chronic load → burnout (blunted, depleted)
   RK.immune = RK.immune || { inflammation: 0 };   // IMMUNE / INFLAMMATION — sickness behaviour; degrades the BBB
   if (RK.longing == null) RK.longing = 0;   // HEARTBEAT — how much it misses the user while it's been alone
+  RK.pins = RK.pins || [];   // user-curated ★ lines that ride along in context (callbacks)
+  RK.goals = RK.goals || [];   // open commitments / deferred self-intents she carries and follows up on
+  RK.observer = RK.observer || { health: 1, repairs: 0, lastAt: 0, hedgeBoost: 0, lastSignals: [] };   // self-monitoring + self-repair vitals
+  RK.alignment = RK.alignment || { complianceHistory: [], voiceFidelity: 1, steerTuningBias: {} };   // AFFERENT FEEDBACK — how well the LLM honoured the steer (drives next-turn tightening)
+  RK.integ = RK.integ || {};   // LEAKY INTEGRATORS (temporal summation): key → {v, at} — accumulate-with-decay
+  RK.action = RK.action || { chosen: 'answer', why: '', at: 0 };   // the executive's chosen primary posture this turn
+  RK.topic = RK.topic || { now: '', since: 0, prior: '', shifts: 0, hits: 0 };   // WORLD MODEL: the active conversational topic + shift tracking
   RK.schedule = RK.schedule || [];   // CHRONO/SECRETARY — dated events it's tracking (countdowns, birthdays, reminders)
   RK.lists = RK.lists || {};   // SECRETARY LISTS — named lists it keeps for the user (shopping, to-do, …)
   RK.voiceEx = RK.voiceEx || [];           // FEATURE-2 — its own strongest past lines, kept as voice exemplars
@@ -49427,13 +49452,18 @@ Use this template for your response:
     { verb: 'remember', what: 'keep a lasting note to itself', run: function (a) { try { rookMoment(a); return 'remembered: ' + a; } catch (e) { return ''; } } },
     { verb: 'note', what: 'add an item to a kept list', run: function (a) { try { var p = a.split(/\s+to\s+(?:my\s+|the\s+)?/i), item = p[0], nm = _listName((p[1] || 'to-do') + ' list'); _listAdd(nm, item); return 'noted (' + nm + '): ' + item; } catch (e) { return ''; } } },
     { verb: 'remind', what: 'set a dated reminder', run: function (a) { try { var w = parseWhen(a); if (!w) return ''; (RK.schedule || (RK.schedule = [])).push({ label: a.replace(/\s+(?:in|on|at|by|next)\s+.*$/i, '').trim().slice(0, 60), at: w, type: 'reminder' }); rookSave(); return 'reminder set: ' + a; } catch (e) { return ''; } } },
-    { verb: 'lookup', what: 'look a topic up for real — you’ll actually know facts about it next turn', run: function (a) { try { var e = String(a || '').trim().slice(0, 60); if (e) knowLookup(e); return e ? ('looking up ' + e) : ''; } catch (er) { return ''; } } }
+    { verb: 'lookup', what: 'look a topic up for real — you’ll actually know facts about it next turn', run: function (a) { try { var e = String(a || '').trim().slice(0, 60); if (e) knowLookup(e); return e ? ('looking up ' + e) : ''; } catch (er) { return ''; } } },
+    { verb: 'define', what: 'look up a word’s precise meaning + synonyms — so you use it right and can reach for a sharper one', run: function (a) { try { var w = String(a || '').trim().slice(0, 40); if (w) defineLookup(w); return w ? ('checking the word “' + w + '”') : ''; } catch (er) { return ''; } } },
+    { verb: 'pin', what: 'pin a line as something that matters — it rides along so you can call back to it later', run: function (a) { try { var p = pinAdd(a); return p ? ('pinned: ' + p) : ''; } catch (er) { return ''; } } },
+    { verb: 'goal', what: 'quietly commit to a goal for them — you’ll carry it and follow up when it fits', run: function (a) { try { var g = goalAdd(a); return g ? ('committing to: ' + g) : ''; } catch (er) { return ''; } } }
   ];
   function _parseTools(content) { var out = []; try { String(content || '').replace(/\[\[\s*([a-z]+)\s*:\s*([^\]]+?)\s*\]\]/gi, function (m, v, a) { out.push({ verb: v.toLowerCase(), args: a.trim(), marker: m }); return m; }); } catch (e) {} return out; }   // PURE (no execution) → unit-testable
   function runAiTools(content) {
-    var did = [], failed = [], clean = String(content || ''), found = _parseTools(content);
+    var did = [], failed = [], clean = String(content || ''), found = _parseTools(content), _imgN = 0;
     for (var i = 0; i < found.length; i++) {
-      var f = found[i]; clean = clean.split(f.marker).join('');   // always strip a tool-shaped marker (so no [[…]] leaks to the user), then report the outcome
+      var f = found[i];
+      if (f.verb === 'imagine' || f.verb === 'picture' || f.verb === 'draw') { var _ip = String(f.args || '').replace(/[<>()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200); clean = _ip ? clean.split(f.marker).join('<image>' + _ip + ' (img' + (_imgN++) + ':0)</image>') : clean.split(f.marker).join(''); did.push('imagining: ' + _ip); continue; }   // IMAGINE → the framework's PROVEN image markup (same path as /image: the prompt-factory + render pipeline generate + insert it)
+      clean = clean.split(f.marker).join('');   // always strip a tool-shaped marker (so no [[…]] leaks to the user), then report the outcome
       var matched = false;
       for (var j = 0; j < AI_TOOLS.length; j++) { if (AI_TOOLS[j].verb === f.verb) { matched = true; var r = ''; try { r = AI_TOOLS[j].run(f.args); } catch (e) {} if (r) did.push(r); else failed.push(f.verb + ' — could not act on “' + f.args.slice(0, 30) + '”'); break; } }
       if (!matched) failed.push(f.verb + ' — unknown tool');
@@ -49441,7 +49471,7 @@ Use this template for your response:
     if (found.length) clean = clean.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+([.,!?;:])/g, '$1').replace(/\n{3,}/g, '\n\n').trim();   // only tidy when a [[tool]] marker was actually stripped — and preserve paragraph breaks (don't flatten multi-line replies)
     return { clean: clean, did: did, failed: failed };
   }
-  function aiToolManifest() { return 'You can quietly ACT, not just speak: write [[remember: …]] to keep a lasting note to yourself, [[note: … to my <list>]] to add to a list, [[remind: … in N days]] to set a reminder, or [[lookup: a topic]] to actually look something up (you’ll know real facts about it next turn — use it when you’re unsure of a real-world or in-universe detail rather than guessing). They run for real and are hidden from them — use only when it genuinely helps, never gratuitously. On your NEXT turn you will be told the outcome of each (done, or why it failed) — read that feedback and respond accordingly.'; }
+  function aiToolManifest() { return 'You can quietly ACT, not just speak: write [[remember: …]] to keep a lasting note to yourself, [[note: … to my <list>]] to add to a list, [[remind: … in N days]] to set a reminder, or [[lookup: a topic]] to actually look something up (you’ll know real facts about it next turn — use it when you’re unsure of a real-world or in-universe detail rather than guessing), or [[imagine: a vivid scene]] to paint what you’re picturing as an ACTUAL image right in your reply (slow + deliberate — only when a visual genuinely adds to the moment, never gratuitously). They run for real and are hidden from them — use only when it genuinely helps, never gratuitously. On your NEXT turn you will be told the outcome of each (done, or why it failed) — read that feedback and respond accordingly.'; }
   // tool FEEDBACK LOOP — on the turn AFTER the AI acts, tell it what its own tools did (succeeded / failed + how to fix), so it isn't acting blind. Consumed once.
   function toolEchoSteer() {
     try {
@@ -49469,6 +49499,24 @@ Use this template for your response:
   // being effective FOR THE USER (secretary math, recited list, recalled fact) is competence exercised too — a small
   //   dopamine + competence-credit lift, the user-facing parallel to toolAffect's reward for the AI's own tools.
   function usefulFelt() { try { var n = RK.neuro; if (n) n.da = _nclamp(n.da + 0.03); RK.credit = RK.credit || {}; var cr = RK.credit.reply || (RK.credit.reply = { up: 0, down: 0 }); cr.up += 1; if ((cr.up + cr.down) > 40) { cr.up = Math.round(cr.up * 0.7); cr.down = Math.round(cr.down * 0.7); } } catch (e) {} }
+  // ── IMAGINATION (design-doc): rkDream consolidates the PAST; predErr/foresight are reactive. This is the missing FORWARD
+  //    leg — offline "what if / what might happen / how could this go", grounded in the world model, feeding curiosity + the proactive opener. ──
+  function imagine() {
+    try {
+      var seeds = [], T = RK.topic, G = (RK.goals || []).filter(function (g) { return !g.done; }), L = (typeof _openLoops !== 'undefined' ? _openLoops : []), mm = RK.moments || [];
+      if (T && T.now) seeds.push('where “' + T.now + '” might go next — something worth bringing up unprompted');
+      if (G.length) seeds.push('how you could actually move “' + String(G[G.length - 1].t).slice(0, 40) + '” forward for them');
+      if (L && L.length) seeds.push('what they might say when they circle back to “' + String(L[L.length - 1].gist || L[L.length - 1].key || '').slice(0, 40) + '”');
+      if (mm.length >= 2) seeds.push('a moment ahead that would echo “' + _momText(mm[mm.length - 1]).slice(0, 32) + '…”');
+      if (!seeds.length) return null;
+      var pick = seeds[Math.floor((typeof roll === 'function' ? roll() : 0.5) * seeds.length)] || seeds[0];
+      var I = RK.imaginings || (RK.imaginings = []); I.push({ t: pick, at: Date.now() }); while (I.length > 8) I.shift();
+      try { think('flow', 'imagining ' + pick); } catch (e) {}
+      try { if (RK.drives && RK.drives.curiosity != null) RK.drives.curiosity = _nclamp(RK.drives.curiosity + 0.02); } catch (e) {}   // imagining a possibility feeds curiosity
+      try { rookSave(); } catch (e) {}
+      return pick;
+    } catch (e) { return null; }
+  }
   function rkDream() {
     if (RK.moments.length < 4) return null;
     // CONSOLIDATION (McClelland CLS / Gen-Agents reflection): if a theme RECURS across moments, distil a durable insight — not just a link.
@@ -49656,6 +49704,11 @@ Use this template for your response:
     if (verb === 'drives') { var d = RK.drives, top = rkDrivesTop(); return ['curiosity', 'care', 'mastery'].map(function (k) { return k + ' ' + rkPct(d[k]) + (k === top ? ' ←' : ''); }).join(' · '); }
     if (verb === 'restraint') { return 'Restraint is situational — it eases off on quiet, low, or venting turns (it shapes the inner-read steer rather than a fixed dial).'; }
     if (verb === 'sheet' || verb === 'loresheet') { var ss = load(); if (/^(clear|off)\b/i.test(rest)) { ss.loreSheet = ''; save(ss); return '📄 Lore sheet cleared.'; } if (/^https?:\/\//i.test(rest)) { ss.loreSheet = rest.trim(); save(ss); try { sheetLoad(); } catch (e) {} return '📄 Lore sheet set + loading — each row of your published Google Sheet becomes a fact the bot can draw on. Reload anytime with /brain rook sheet reload.'; } if (/^reload\b/i.test(rest)) { try { sheetLoad(); } catch (e) {} return '📄 Reloading your lore sheet…'; } return '📄 Lore sheet: ' + (ss.loreSheet ? (ss.loreSheet.slice(0, 60) + '…  (reload: /brain rook sheet reload)') : 'none. Publish a Google Sheet to the web, then /brain rook sheet <url>.'); }
+    if (verb === 'pin' || verb === 'pins') { if (/^(clear|off)\b/i.test(rest)) { var _nc = pinDrop(''); return '📌 Cleared ' + _nc + ' pin(s).'; } var _um = rest.match(/^(?:unpin|drop|remove)\s+(.+)/i); if (_um) { var _d = pinDrop(_um[1]); return _d ? ('📌 Unpinned ' + _d + ' matching pin(s).') : '📌 No pin matched that.'; } if (rest) { var _p = pinAdd(rest); return _p ? ('📌 Pinned: “' + _p + '” — it rides along so she can call back to it.') : '📌 Nothing to pin.'; } var _P = RK.pins || []; return '📌 Pins (' + _P.length + '): ' + (_P.length ? _P.map(function (p) { return '“' + p.t.slice(0, 50) + '”'; }).join(' · ') : 'none. /brain rook pin <line> to add one.'); }
+    if (verb === 'goal' || verb === 'goals') { var _gm = rest.match(/^(?:done|complete|finish)\s+(.*)/i); if (_gm) { var _gd = goalDone(_gm[1]); return _gd ? ('🎯 Marked done: ' + _gd) : '🎯 No open goal matched that.'; } if (/^(clear|off)\b/i.test(rest)) { RK.goals = []; try { rookSave(); } catch (e) {} return '🎯 Goals cleared.'; } if (rest) { var _g = goalAdd(rest); return _g ? ('🎯 Committed: ' + _g + ' — she’ll carry it and follow up when it fits.') : '🎯 Nothing to commit to.'; } var _G = (RK.goals || []).filter(function (g) { return !g.done; }); return '🎯 Open goals (' + _G.length + '): ' + (_G.length ? _G.map(function (g) { return g.t.slice(0, 50); }).join(' · ') : 'none. /brain rook goal <commitment> to add one.'); }
+    if (verb === 'cog' || verb === 'cognition') { return '🧠 Cognition —\n' + cognitionReadout(); }
+    if (verb === 'settle' || verb === 'recurrence') { var es = load(); if (/on|yes|start/i.test(rest)) { es.settle = true; save(es); return '🧠 Lateral settling ON (experimental) — before voting, faculties now influence each other along their bonds for 2 capped iterations (co-activated allies excite, antagonists inhibit). May shift which voice wins. /brain rook settle off to revert to single-pass.'; } if (/off|no|stop/i.test(rest)) { es.settle = false; save(es); return '🧠 Lateral settling off — council back to its stable single-pass vote.'; } return '🧠 Lateral settling is ' + (es.settle ? 'ON' : 'off') + ' (experimental within-turn recurrence). Toggle: /brain rook settle on|off.'; }
+    if (verb === 'tidy' || verb === 'hygiene' || verb === 'clean') { var ts = load(); if (/on|yes|start/i.test(rest)) { ts.tidyReplies = true; save(ts); return '🧹 Reply tidy ON — strips name-bleed, balances code fences, and collapses repeats on the DISPLAYED reply (display-only; never changes stored text). /brain rook tidy off to stop.'; } if (/off|stop|no/i.test(rest)) { ts.tidyReplies = false; save(ts); return '🧹 Reply tidy off.'; } return '🧹 Reply tidy is ' + (ts.tidyReplies ? 'ON' : 'off') + '. Toggle: /brain rook tidy on|off. (Display-only cleanup of obvious LLM artifacts on the actual reply.)'; }
     if (verb === 'speak' || verb === 'voice' || verb === 'autospeak') { var sv = load(); if (/off|stop|no/i.test(rest)) { sv.autospeak = false; save(sv); return '🔇 Voice off — the companion no longer speaks its replies.'; } if (/on|yes|start/i.test(rest)) { sv.autospeak = true; save(sv); return '🔊 Voice ON — the companion speaks each reply aloud, with rate+pitch shaded by its mood. Say "/brain rook speak off" to stop.'; } if (rest) { try { _speak(rest); } catch (e) {} return '🔊 spoke: ' + rest; } return '🔊 Voice is ' + (sv.autospeak ? 'ON' : 'off') + '. Toggle: /brain rook speak on|off. (mood→voice: arousal=pace, valence=pitch.)'; }
     if (verb === 'narrate' || verb === 'pov' || verb === 'narration') { if (rest && setNarrationPov(rest)) return '🎬 Narration perspective → THIRD-PERSON ' + narrationPov().toUpperCase() + '.\nThe brain now narrates this way on /nar turns and the 🎬 Narrate button.'; return '🎬 Narration perspective: third-person ' + narrationPov() + '.\nSet with /nar pov <limited | omniscient | objective>.\n\n' + narrationDirective(); }
     if (verb === 'knowledge' || verb === 'wiki' || verb === 'lookups') {
@@ -49780,6 +49833,33 @@ Use this template for your response:
     { n: 'tool·lookup', f: function () { var p = _parseTools('maybe [[lookup: Mount Everest]] then'); return p.length === 1 && p[0].verb === 'lookup'; } },
     { n: 'sched·coalesce', f: function () { var s = makeSched(1), hung = function () { return new Promise(function () {}); }; var a = s(hung, { key: 'x' }), b = s(hung, { key: 'x' }), c = s(hung, { key: 'y' }); return a === b && a !== c; } },
     { n: 'meta·lookup-aware', f: function () { var a = metaAnswer('can you look up facts'); return /look|wiki|fact/i.test(a); } },
+    { n: 'clean·namebleed', f: function () { return _clean('Chloe: hey there', 'Chloe') === 'hey there'; } },
+    { n: 'clean·fence', f: function () { return /```[\s\S]*```/.test(_clean('```js\nx=1')); } },
+    { n: 'pin·ride', f: function () { return _fix(function () { RK.pins = []; pinAdd('the blue door'); return /blue door/.test(pinLine()); }); } },
+    { n: 'goal·carry', f: function () { return _fix(function () { RK.goals = []; goalAdd('help them move'); var on = /help them move/.test(goalLine()); goalDone('move'); return on && goalLine() === ''; }); } },
+    { n: 'know·conf-decay', f: function () { var fresh = knowConf({ at: Date.now(), n: 3 }), old = knowConf({ at: Date.now() - 90 * 86400000, n: 1 }); return fresh > 0.5 && old < 0.2 && fresh > old; } },
+    { n: 'know·garden', f: function () { return _fix(function () { RK.knowledge = { x: { title: 'x', summary: 's', at: Date.now() - 90 * 86400000, n: 0 }, y: { title: 'y', summary: 's', at: Date.now(), n: 5 } }; knowGarden(); return !RK.knowledge.x && !!RK.knowledge.y; }); } },
+    { n: 'observe·repair', f: function () { return _fix(function () { var hit = false, i, j; for (i = 0; i < _SANE01.length; i++) { var o = RK[_SANE01[i][0]], ks = _SANE01[i][1]; if (o && ks.length) { o[ks[0]] = 9; hit = true; break; } } _repairInvariants(); var ok = true; for (i = 0; i < _SANE01.length; i++) { var o2 = RK[_SANE01[i][0]], ks2 = _SANE01[i][1]; if (!o2) continue; for (j = 0; j < ks2.length; j++) { var v = o2[ks2[j]]; if (typeof v === 'number' && (v < 0 || v > 1 || isNaN(v))) ok = false; } } return hit && ok; }); } },
+    { n: 'observe·signal', f: function () { return _fix(function () { RK.goals = []; for (var i = 0; i < 8; i++) RK.goals.push({ t: 'g' + i, done: false }); RK.observer = { lastAt: Date.now() }; return observe().indexOf('goal-overload') >= 0; }); } },
+    { n: 'action·clarify', f: function () { return _fix(function () { RK.sentinel = {}; RK.epistemic = {}; return chooseAction('build me an app') === 'clarify'; }); } },
+    { n: 'action·answer', f: function () { return _fix(function () { RK.sentinel = {}; RK.epistemic = {}; return chooseAction('I really enjoyed that museum exhibit today') === 'answer'; }); } },
+    { n: 'topic·shift-cue', f: function () { return _fix(function () { RK.topic = { now: 'Tokyo', prior: 'Kyoto', since: Date.now(), hits: 1, shifts: 1 }; return /shifted the subject from Kyoto to Tokyo/i.test(topicLine()); }); } },
+    { n: 'topic·sustained', f: function () { return _fix(function () { RK.topic = { now: 'Tokyo', prior: '', since: Date.now() - 60000, hits: 5, shifts: 0 }; return /stayed on Tokyo/i.test(topicLine()); }); } },
+    { n: 'imagine·forward', f: function () { return _fix(function () { RK.topic = { now: 'Mars' }; RK.goals = []; RK.moments = []; RK.imaginings = []; var p = imagine(); return !!p && (RK.imaginings || []).length === 1; }); } },
+    { n: 'imagine·feeds-curiosity', f: function () { return _fix(function () { RK.topic = { now: 'Mars' }; RK.goals = []; RK.moments = []; RK.imaginings = []; if (!RK.drives) RK.drives = {}; RK.drives.curiosity = 0.4; imagine(); return RK.drives.curiosity > 0.4; }); } },
+    { n: 'tool·define', f: function () { var p = _parseTools('hmm [[define: perspicacious]] ok'); return p.length === 1 && p[0].verb === 'define'; } },
+    { n: 'tool·imagine', f: function () { var r = runAiTools('look [[imagine: a moonlit garden]] there'); return /<image>a moonlit garden \(img0:0\)<\/image>/.test(r.clean) && r.clean.indexOf('[[') < 0; } },
+    { n: 'conv·register-rich', f: function () { return /wider|rich|elaborate|vocabulary/i.test(registerSteer('I have been contemplating the rather labyrinthine implications of our previous conversation regarding consciousness')); } },
+    { n: 'conv·register-terse', f: function () { return /brief|short|clipped/i.test(registerSteer('yeah ok')); } },
+    { n: 'conv·variety', f: function () { return _fix(function () { RK.voiceEx = [{ text: 'I think that we should go' }, { text: 'I think you are right about that' }]; return /opened several recent replies/i.test(varietySteer()); }); } },
+    { n: 'conv·followup-gate', f: function () { return followupSteer('what time is it?') === '' && followupSteer('build me a thing') === ''; } },
+    { n: 'afferent·fact-hit', f: function () { return _fix(function () { RK.fidelity = { score: 0.9 }; _lastSteer = { facts: ['ground it in fact: the capital of France is Paris'], hedge: false, at: Date.now(), consumed: false }; var c = afferentScan('Of course — the capital of France is Paris.'); return c != null && c >= 0.6; }); } },
+    { n: 'afferent·fact-miss', f: function () { return _fix(function () { RK.fidelity = { score: 0.9 }; RK.alignment = { complianceHistory: [], voiceFidelity: 1, steerTuningBias: {} }; _lastSteer = { facts: ['ground it in fact: the capital of France is Paris'], hedge: false, at: Date.now(), consumed: false }; var c = afferentScan('honestly no clue what you mean'); return c != null && c < 0.6 && (RK.alignment.steerTuningBias.ground || 0) > 0; }); } },
+    { n: 'afferent·consume-once', f: function () { return _fix(function () { RK.fidelity = { score: 0.9 }; _lastSteer = { facts: [], hedge: false, at: Date.now(), consumed: false }; afferentScan('hi'); return afferentScan('hi again') === null; }); } },
+    { n: 'leak·accumulate', f: function () { return _fix(function () { RK.integ = {}; leakAdd('z', 0.5, 600000); var v = leakAdd('z', 0.5, 600000); return v > 0.9 && v <= 1.01; }); } },
+    { n: 'settle·lateral', f: function () { var proposals = [{ by: 'a', intent: { strength: 0.5 } }, { by: 'b', intent: { strength: 0.8 } }]; var live = [{ self: { id: 'a' }, bonds: { b: 1 } }, { self: { id: 'b' }, bonds: {} }]; settleProposals(proposals, live); return proposals[0].intent.strength > 0.5 && proposals[0].intent.strength <= 1.5; } },
+    { n: 'concern·builds', f: function () { return _fix(function () { RK.integ = { unease: { v: 1.5, at: Date.now() } }; return /unease has been building/i.test(concernSteer()); }); } },
+    { n: 'debug·cognition', f: function () { var r = cognitionReadout(); return typeof r === 'string' && /executive/i.test(r) && /observer/i.test(r) && /topic/i.test(r); } },
     { n: 'idf·rare>common', f: function () { return _fix(function () { RK.df = { common: 100, rare: 1 }; RK.dfN = 100; var qs = { common: 1, rare: 1 }, qt = ['common', 'rare']; return _idfRel(['rare', 'zzz'], qs, qt).rel > _idfRel(['common', 'zzz'], qs, qt).rel; }); } },
     { n: 'idf·empty=jaccard', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var r = _idfRel(['alpha', 'gamma'], { alpha: 1, beta: 1 }, ['alpha', 'beta']); return r.n === 1 && Math.abs(r.rel - (1 / 3)) < 1e-9; }); } },
     { n: 'idf·rel-bounds', f: function () { return _fix(function () { RK.df = {}; RK.dfN = 0; var full = _idfRel(['a', 'b'], { a: 1, b: 1 }, ['a', 'b']), none = _idfRel(['x'], { a: 1 }, ['a']); return Math.abs(full.rel - 1) < 1e-9 && none.rel === 0; }); } },
@@ -49884,6 +49964,98 @@ Use this template for your response:
   // ── INVARIANTS — validate the LIVE state (not isolated functions like the unit tests): every [0,1] field in range &
   //    not NaN, every bounded buffer within its cap, the core subsystems initialised, the key functions still present.
   //    Catches silent corruption + refactor regressions (a renamed steer, a runaway buffer) that unit tests miss. ──
+  // ── EXECUTIVE / ACTION-SELECTION (design-doc Basal Ganglia): arbitrate the already-computed signals into ONE primary
+  //    response posture {protect, hold, clarify, search, reflect, answer}, record it (legibility), and add a steer bit
+  //    ONLY for the genuinely-new action (clarify) — protect/hold/search already have their own steers; we name, not duplicate. ──
+  function _underspec(s) { try { var w = String(s || '').trim().split(/\s+/); if (w.length > 12) return false; if (/\b(something|anything|some ?thing|stuff|whatever|a thing)\b/i.test(s)) return true; return w.length <= 4 && /\b(make|build|write|create|do|help|fix|design|plan|code)\b/i.test(s); } catch (e) { return false; } }
+  function chooseAction(t) {
+    try {
+      var s = String(t || ''), why = '', act = 'answer';
+      var threat = !!(RK.sentinel && RK.sentinel.category && Date.now() - (RK.sentinel.at || 0) < 30000);
+      var vent = (typeof ROOK_VENT !== 'undefined') && ROOK_VENT.test(s);
+      var ep = (RK.epistemic && RK.epistemic.stance) || '';
+      var ask = (typeof detectAsk === 'function') ? detectAsk(s) : null;
+      var lowConf = !!(RK.calib && RK.calib.lastConf != null && RK.calib.lastConf < 0.4 && /\?/.test(s));
+      if (threat) { act = 'protect'; why = 'a threat to handle first'; }                                            // existing: sentinel steer
+      else if (vent) { act = 'hold'; why = 'they want to be heard, not fixed'; }                                    // existing: vent path
+      else if (ask && ask.kind === 'request' && ask.effortful && _underspec(s)) { act = 'clarify'; why = 'the ask is underspecified — one good question beats a guess'; }   // NEW
+      else if (ep === 'lookup' || ep === 'hedge' || lowConf) { act = 'search'; why = 'uncertain ground — find out / flag it'; }   // existing: epistemic→lookup
+      else if (ask && ask.kind === 'inject') { act = 'reflect'; why = 'a meta/stance prompt — think before reacting'; }
+      RK.action = { chosen: act, why: why, at: Date.now() };
+      return act;
+    } catch (e) { return 'answer'; }
+  }
+  // ── OBSERVER + SELF-REPAIR (design-doc: the mind watches itself + intervenes). observe() reads subsystem vitals each
+  //    idle beat, raises signals, and fires BOUNDED repairs; a meta-guard (2-min cooldown) stops repair thrashing. ──
+  function _repairInvariants() { try { for (var i = 0; i < _SANE01.length; i++) { var grp = _SANE01[i][0], keys = _SANE01[i][1], obj = RK[grp]; if (!obj) continue; for (var j = 0; j < keys.length; j++) { var v = obj[keys[j]]; if (typeof v === 'number' && (isNaN(v) || v < 0 || v > 1)) obj[keys[j]] = isNaN(v) ? 0.5 : (v < 0 ? 0 : 1); } } } catch (e) {} }
+  function observe() {
+    try {
+      var O = RK.observer || (RK.observer = { health: 1, repairs: 0, lastAt: 0, hedgeBoost: 0, lastSignals: [] }), sig = [], now = Date.now();
+      var kc = Object.keys(RK.knowledge || {}).length, mc = (RK.marks || []).length, sc = ((RK.scratch && RK.scratch.notes) || []).length;
+      var memLoad = Math.min(1, kc / 24) * 0.5 + Math.min(1, mc / 30) * 0.3 + Math.min(1, sc / (((RK.scratch && RK.scratch.cap) || 12))) * 0.2;
+      if (memLoad > 0.9) sig.push('mem-bloat');                                                  // SUBSYSTEM: memory
+      var lc = (RK.calib && RK.calib.lastConf != null) ? RK.calib.lastConf : 0.6;
+      if (lc < 0.35) sig.push('low-confidence');                                                 // SUBSYSTEM: epistemic
+      var openGoals = (RK.goals || []).filter(function (g) { return !g.done; }).length;
+      if (openGoals > 6) sig.push('goal-overload');                                              // SUBSYSTEM: goals
+      var iv = 0; try { iv = brainInvariants().bad.length; } catch (e) {} if (iv > 0) sig.push('invariant:' + iv);   // SUBSYSTEM: state integrity
+      var n = RK.neuro || {}, pinned = 0; ['da', 'sero', 'ne'].forEach(function (kk) { var v = n[kk]; if (v != null && (v < 0.05 || v > 0.95)) pinned++; });
+      if (pinned >= 2) sig.push('mood-unstable');                                                // SUBSYSTEM: affect
+      var canRepair = now - (O.lastAt || 0) > 120000;                                            // META-OBSERVER: cooldown stops runaway repair
+      if (sig.length && canRepair) {
+        if (sig.indexOf('mem-bloat') >= 0) { try { knowGarden(); } catch (e) {} try { if (RK.scratch && RK.scratch.notes && RK.scratch.notes.length > 6) RK.scratch.notes = RK.scratch.notes.slice(-6); } catch (e) {} }   // REPAIR: forget harder
+        if (sig.indexOf('low-confidence') >= 0) O.hedgeBoost = Math.min(1, (O.hedgeBoost || 0) + 0.4);                                                                // REPAIR: raise verify/hedge pressure
+        if (sig.indexOf('goal-overload') >= 0) { try { var G = (RK.goals || []).filter(function (g) { return !g.done; }); if (G.length > 6) G[0].done = true; } catch (e) {} }   // REPAIR: retire the oldest open goal
+        if (/invariant:/.test(sig.join(','))) _repairInvariants();                                                                                                    // REPAIR: clamp corrupt state back into range
+        if (sig.indexOf('mood-unstable') >= 0) { try { ['da', 'sero', 'ne'].forEach(function (kk) { if (n[kk] != null) n[kk] = n[kk] * 0.7 + 0.15; }); } catch (e) {} }                // REPAIR: pull pinned chemistry toward centre
+        O.repairs = (O.repairs || 0) + 1; O.lastAt = now; try { think('guard', 'self-repair — ' + sig.join(', ')); } catch (e) {}
+      }
+      if (sig.indexOf('low-confidence') < 0) O.hedgeBoost = Math.max(0, (O.hedgeBoost || 0) - 0.1);   // heal: hedge pressure fades when grounded again
+      O.health = Math.max(0, 1 - sig.length * 0.2); O.lastSignals = sig;
+      return sig;
+    } catch (e) { return []; }
+  }
+  // ── AFFERENT FEEDBACK (the internal ear): hear my OWN reply after it commits, score how well it honoured this turn's
+  //    steer (facts / hedge / voice), then adapt the NEXT turn — credit the winning faculty, tune dopamine + calibration,
+  //    raise caution, and stiffen the steer where the model keeps drifting. ASYNC by design: the platform streams the reply
+  //    live and the brain doesn't own its generation, so we cannot gate pre-render — we correct FORWARD, not in place.
+  //    Lives in the observer layer, never a faculty (the auditor must not be the advocate it grades). ──
+  var _lastSteer = null;
+  function _factTokens(s) { var out = [], stop = { draw: 1, actually: 1, know: 1, about: 1, ground: 1, fact: 1, facts: 1, invent: 1, your: 1, them: 1, they: 1, this: 1, that: 1, with: 1, from: 1, into: 1, what: 1, when: 1, real: 1, hold: 1, loosely: 1, double: 1, check: 1, been: 1, while: 1, dont: 1 }; try { var c = String(s || ''); var ci = c.lastIndexOf(': '); if (ci >= 0) c = c.slice(ci + 2); c.toLowerCase().replace(/[^a-z]+/g, ' ').split(' ').forEach(function (w) { if (w.length >= 4 && !stop[w] && out.indexOf(w) < 0) out.push(w); }); } catch (e) {} return out; }
+  function afferentScan(reply) {
+    try {
+      var L = _lastSteer; if (!L || L.consumed || Date.now() - (L.at || 0) > 60000) return null;   // only a fresh, unconsumed user-reply steer
+      L.consumed = true;
+      var r = String(reply || '').toLowerCase(), rtok = {}; r.replace(/[^a-z]+/g, ' ').split(' ').forEach(function (w) { if (w) rtok[w] = 1; });
+      var dims = [], worst = '', worstV = 2;
+      if (L.facts && L.facts.length) {   // FACT compliance: did the reply reflect the grounded facts it was handed?
+        var honored = 0; for (var i = 0; i < L.facts.length; i++) { var ft = _factTokens(L.facts[i]); if (!ft.length) { honored++; continue; } var hit = false; for (var j = 0; j < ft.length; j++) if (rtok[ft[j]]) { hit = true; break; } if (hit) honored++; }
+        var fs = honored / L.facts.length; dims.push(fs); if (fs < worstV) { worstV = fs; worst = 'ground'; }
+      }
+      if (L.hedge) { var hs = /\b(i think|not sure|might|maybe|i believe|perhaps|i'?m not certain|as far as i know|i guess|seem|possibly)\b/i.test(r) ? 1 : 0; dims.push(hs); if (hs < worstV) { worstV = hs; worst = 'hedge'; } }   // HEDGE: told to flag uncertainty — did it?
+      var vf = (RK.fidelity && RK.fidelity.score != null) ? RK.fidelity.score : (1 - (RK.alien || 0)); dims.push(vf); if (vf < worstV) { worstV = vf; worst = 'voice'; }   // VOICE: did it sound like her? (existing fidelity scorer)
+      var compliance = dims.length ? dims.reduce(function (a, b) { return a + b; }, 0) / dims.length : 1;
+      var A = RK.alignment || (RK.alignment = { complianceHistory: [], voiceFidelity: 1, steerTuningBias: {} });
+      A.complianceHistory.push(Math.round(compliance * 100) / 100); while (A.complianceHistory.length > 20) A.complianceHistory.shift();
+      A.voiceFidelity = _nclamp((A.voiceFidelity == null ? 1 : A.voiceFidelity) * 0.8 + vf * 0.2);
+      var n = RK.neuro, s = RK.soma, B = A.steerTuningBias || (A.steerTuningBias = {});
+      try { var insp = army().inspect(), w = (insp.council || []).filter(function (c) { return c.spokeLast; })[0]; if (w) { var F = RK.faculty || (RK.faculty = {}); var fr = F[w.id] || (F[w.id] = { rel: 0.5, n: 0 }); fr.rel = _nclamp(fr.rel + (compliance >= 0.8 ? 0.03 : (compliance < 0.5 ? -0.04 : 0))); fr.n = (fr.n || 0) + 1; } } catch (e) {}   // credit/penalise the faculty that won this turn
+      if (compliance < 0.55) {   // a drift → an acute "that came out wrong" alarm + tighten the next steer
+        if (n) { n.ne = _nclamp((n.ne == null ? 0.4 : n.ne) + 0.15); if (n.da != null) n.da = _nclamp(n.da - 0.05); }
+        if (s && s.tension != null) s.tension = _nclamp(s.tension + 0.12);
+        if (RK.observer) RK.observer.hedgeBoost = _nclamp((RK.observer.hedgeBoost || 0) + 0.3);
+        if (worst) B[worst] = _nclamp((B[worst] || 0) + 0.35);
+        try { if (RK.calib) RK.calib.misses = (RK.calib.misses || 0) + 1; } catch (e) {}
+        try { think('guard', 'that reply drifted from the steer (' + worst + ') — tightening next time'); } catch (e) {}
+      } else if (compliance >= 0.85) {   // clean → reward + relax the tuning
+        if (n && n.da != null) n.da = _nclamp(n.da + 0.03);
+        Object.keys(B).forEach(function (k) { B[k] = _nclamp((B[k] || 0) - 0.1); if (B[k] <= 0) delete B[k]; });
+        try { if (RK.calib) RK.calib.hits = (RK.calib.hits || 0) + 1; } catch (e) {}
+      }
+      try { rookSave(); } catch (e) {}
+      return compliance;
+    } catch (e) { return null; }
+  }
   function brainInvariants() {
     var bad = [], n = 0, i, j, k;
     try { for (i = 0; i < _SANE01.length; i++) { var grp = _SANE01[i][0], keys = _SANE01[i][1], obj = RK[grp]; if (!obj) continue; for (j = 0; j < keys.length; j++) { k = keys[j]; var v = obj[k]; if (v == null) continue; n++; if (typeof v !== 'number' || v !== v) bad.push(grp + '.' + k + ' = ' + v + ' (NaN/non-number)'); else if (v < -0.001 || v > 1.001) bad.push(grp + '.' + k + ' = ' + _n2(v) + ' (out of [0,1])'); } } } catch (e) { bad.push('range-check errored'); }
@@ -49896,6 +50068,18 @@ Use this template for your response:
   // ── /brain debug — dump EVERYTHING of value in one read-only snapshot (state restored after via _fix): invariants,
   //    raw chemistry/soma/hormone/metab, the inspectors (chem/memory/learning/steer/bond/needs/sentinel/salience/drives),
   //    the learned state (scratchpad/gist/faculty-reliability/quality/evalLog) + recent errors. ──
+  // Consolidated readout of this session's cognitive subsystems — for /brain debug AND /brain rook cog.
+  function cognitionReadout() {
+    var L = [];
+    try { var ac = RK.action || {}; L.push('executive   posture ' + (ac.chosen || 'answer') + (ac.why ? ' — ' + ac.why : '') + '  ·  settle ' + (load().settle ? 'ON (recurrence)' : 'off')); } catch (e) {}
+    try { var ob = RK.observer || {}; L.push('observer    health ' + _n2(ob.health == null ? 1 : ob.health) + '  ·  hedgeBoost ' + _n2(ob.hedgeBoost) + '  ·  repairs ' + (ob.repairs || 0) + ((ob.lastSignals && ob.lastSignals.length) ? '  ·  last: ' + ob.lastSignals.join(', ') : '')); } catch (e) {}
+    try { var al = RK.alignment || {}, ch = al.complianceHistory || [], tb = al.steerTuningBias || {}, tbk = Object.keys(tb); var avg = ch.length ? ch.reduce(function (a, b) { return a + b; }, 0) / ch.length : null; L.push('alignment   compliance ' + (avg == null ? '— (no replies scored yet)' : (Math.round(avg * 100) + '% avg/' + ch.length + ', last ' + Math.round(ch[ch.length - 1] * 100) + '%')) + '  ·  voiceFidelity ' + _n2(al.voiceFidelity) + '  ·  tuning ' + (tbk.length ? tbk.map(function (k) { return k + ' ' + _n2(tb[k]); }).join(', ') : 'none')); } catch (e) {}
+    try { var tp = RK.topic || {}; L.push('topic       ' + (tp.now ? ('“' + tp.now + '” ×' + (tp.hits || 0) + (tp.prior ? ' (from “' + tp.prior + '”)' : '') + '  ·  ' + (tp.shifts || 0) + ' shift(s)') : 'none yet')); } catch (e) {}
+    try { var ig = RK.integ || {}, igk = Object.keys(ig); L.push('integrators ' + (igk.length ? igk.map(function (k) { return k + ' ' + (Math.round(leakGet(k) * 100) / 100); }).join('  ·  ') : 'none')); } catch (e) {}
+    try { var K = RK.knowledge || {}, kk = Object.keys(K); L.push('knowledge   ' + kk.length + ' fact(s)' + (kk.length ? ' · ' + kk.slice(0, 5).map(function (k) { return (K[k].title || k) + ' ' + Math.round(knowConf(K[k]) * 100) + '%'; }).join(', ') : '')); } catch (e) {}
+    try { var og = (RK.goals || []).filter(function (g) { return !g.done; }).length, pn = (RK.pins || []).length; L.push('carrying    ' + og + ' open goal(s) · ' + pn + ' pin(s)'); } catch (e) {}
+    return L.join('\n');
+  }
   function brainDebug() {
     return _fix(function () {
       var D = ['🧠 BRAIN DEBUG — full dump (read-only; live state restored after)'], i;
@@ -49916,6 +50100,7 @@ Use this template for your response:
       try { D.push('▸ HEALTH\n' + brainStatus().replace(/\s*Brain self-test:[^.]*\.\s*/i, ' ')); } catch (e) {}
       var insp = ['chem', 'memory', 'learning', 'steer', 'bond', 'needs', 'sentinel', 'salience', 'drives', 'know'];
       for (i = 0; i < insp.length; i++) { try { var r = rookCmd(insp[i]); if (r) D.push('▸ ' + insp[i].toUpperCase() + '\n' + String(r)); } catch (e) {} }
+      try { D.push('▸ COGNITION (executive · observer · alignment · topic · integrators · knowledge · carrying)\n' + cognitionReadout()); } catch (e) { D.push('▸ COGNITION — errored: ' + (e && e.message)); }
       try { D.push('▸ RECENT ERRORS\n' + (_errLog.length ? _errLog.map(function (x) { return x.msg; }).join('\n') : 'none')); } catch (e) {}
       return D.join('\n\n');
     });
@@ -50030,18 +50215,62 @@ Use this template for your response:
               else if (j && j.extract && !/disambiguation|may refer to/i.test((j.type || '') + ' ' + j.extract)) got = { title: j.title || entity, extract: j.extract };
             }
           } catch (e) {}
-          if (got) { K[key] = { title: got.title, summary: String(got.extract).replace(/\s+/g, ' ').slice(0, 380), src: srcs[i].src, at: Date.now(), n: 1 }; var ks = Object.keys(K); while (ks.length > 24) { delete K[ks.shift()]; } try { think('mem', 'looked it up (' + srcs[i].src + ') — ' + got.title + ': ' + String(got.extract).slice(0, 56)); } catch (e) {} try { var _nl = RK.neuro; if (_nl && _nl.da != null) _nl.da = _nclamp(_nl.da + 0.04); if (RK.drives && RK.drives.curiosity != null) RK.drives.curiosity = _nclamp(RK.drives.curiosity + 0.05); } catch (e) {} try { rookSave(); } catch (e) {} _knowBusy = false; }
+          if (got) { var _prev = K[key], _newSum = String(got.extract).replace(/\s+/g, ' ').slice(0, 380), _changed = !!(_prev && _prev.summary && _prev.summary.slice(0, 110) !== _newSum.slice(0, 110)); K[key] = { title: got.title, summary: _newSum, src: srcs[i].src, at: Date.now(), n: (_prev && _prev.n) || 1, rev: ((_prev && _prev.rev) || 0) + (_prev ? 1 : 0) }; var ks = Object.keys(K); while (ks.length > 24) { delete K[ks.shift()]; } try { think('mem', _changed ? ('updated what I know about ' + got.title + ' — it had changed since last time') : ('looked it up (' + srcs[i].src + ') — ' + got.title + ': ' + String(got.extract).slice(0, 56))); } catch (e) {} try { var _nl = RK.neuro; if (_nl && _nl.da != null) _nl.da = _nclamp(_nl.da + 0.04); if (RK.drives && RK.drives.curiosity != null) RK.drives.curiosity = _nclamp(RK.drives.curiosity + 0.05); } catch (e) {} try { rookSave(); } catch (e) {} _knowBusy = false; }
           else tryNext(i + 1);
         }, function () { tryNext(i + 1); });
       })(0);
     } catch (e) { _knowBusy = false; }
   }
-  function knowTick(text) { try { if (!_knowGate(text)) return; var e = _extractEntity(text); if (!e) return; var K = RK.knowledge || {}, key = e.toLowerCase(); if (K[key]) { K[key].n = (K[key].n || 0) + 1; return; } knowLookup(e); } catch (e) {} }   // background — kicked off on a curious user turn
+  function knowTick(text) { try { if (!_knowGate(text)) return; var e = _extractEntity(text); if (!e) return; var K = RK.knowledge || {}, key = e.toLowerCase(); if (K[key]) { K[key].n = (K[key].n || 0) + 1; if (Date.now() - (K[key].at || 0) > 1209600000 && !/^sheet:/.test(key)) { K[key].at = 0; knowLookup(e); } return; } knowLookup(e); } catch (e) {} }   // background — on a curious turn; a stale (>14d) re-mention RE-VERIFIES rather than just bumping use
+  // ── WORLD MODEL — the one genuine gap (the rest is lobesSnapshot/bond/profile/tom/knowledge/wm/loops): an ACTIVE-TOPIC
+  //    tracker. What are we on right now, and did they just change the subject? Feeds the snapshot + a continuity steer. ──
+  function topicTick(text) {
+    try {
+      var e = (typeof _extractEntity === 'function') ? _extractEntity(text) : ''; if (!e) return;
+      var T = RK.topic || (RK.topic = { now: '', since: Date.now(), prior: '', shifts: 0, hits: 0 });
+      if (e.toLowerCase() === String(T.now || '').toLowerCase()) { T.hits = (T.hits || 0) + 1; }   // staying on topic — it's building
+      else { T.prior = T.now; T.now = e; T.since = Date.now(); T.shifts = (T.shifts || 0) + (T.prior ? 1 : 0); T.hits = 1; }   // subject changed
+    } catch (e) {}
+  }
+  function topicLine() {
+    try {
+      var T = RK.topic; if (!T || !T.now) return '';
+      if (T.prior && (T.hits || 0) <= 1 && Date.now() - (T.since || 0) < 20000) return 'they’ve just shifted the subject from ' + T.prior + ' to ' + T.now + ' — follow the turn, don’t drag the old thread along';
+      if ((T.hits || 0) >= 4) return 'you’ve stayed on ' + T.now + ' for a while — it clearly matters to them; go deeper rather than skating off it';
+      return '';
+    } catch (e) { return ''; }
+  }
+  // ── DICTIONARY sense (superFetch): precise meanings + synonyms → she uses words right and can reach for a sharper one.
+  //    Cached into RK.knowledge as src 'dictionary' so the ecology + knowSteer treat it like any other fact. ──
+  function defineLookup(word) {
+    try {
+      var w = String(word || '').trim().toLowerCase().replace(/[^a-z'\-]/g, ''); if (!w || w.length > 40 || _knowBusy) return;
+      var key = 'def:' + w, K = RK.knowledge || (RK.knowledge = {});
+      if (K[key] && Date.now() - (K[key].at || 0) < 2592000000) { K[key].n = (K[key].n || 0) + 1; return; }   // cached < 30d
+      _knowBusy = true;
+      knowCall('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(w)).then(function (res) {
+        try {
+          if (res && res.ok && res.text) {
+            var j = JSON.parse(res.text);
+            if (Array.isArray(j) && j[0] && j[0].meanings && j[0].meanings[0]) {
+              var m0 = j[0].meanings[0], def = (m0.definitions && m0.definitions[0] && m0.definitions[0].definition) || '', syn = [];
+              j[0].meanings.forEach(function (m) { (m.synonyms || []).forEach(function (s) { if (syn.indexOf(s) < 0 && syn.length < 6) syn.push(s); }); });
+              if (def) { K[key] = { title: w, summary: (m0.partOfSpeech ? '(' + m0.partOfSpeech + ') ' : '') + String(def).slice(0, 200) + (syn.length ? ' · synonyms: ' + syn.join(', ') : ''), src: 'dictionary', at: Date.now(), n: 1 }; var ks = Object.keys(K); while (ks.length > 24) delete K[ks.shift()]; try { think('mem', 'looked up the word “' + w + '”'); } catch (e) {} try { rookSave(); } catch (e) {} }
+            }
+          }
+        } catch (e) {} _knowBusy = false;
+      }, function () { _knowBusy = false; });
+    } catch (e) { _knowBusy = false; }
+  }
+  // ── KNOWLEDGE ECOLOGY (design-doc: facts aren't permanent): confidence decays with age + strengthens with re-use;
+  //    stale facts re-verify on re-mention; contradictions update the record; old-unused facts are gardened away. ──
+  function knowConf(f) { if (!f) return 0; var age = (Date.now() - (f.at || 0)) / 86400000; var fresh = Math.exp(-age / 45); var use = Math.min(1, 0.5 + (f.n || 1) * 0.08); var v = fresh * use; return v < 0 ? 0 : (v > 1 ? 1 : v); }
+  function knowGarden() { try { var K = RK.knowledge || {}, now = Date.now(), drop = []; for (var k in K) { var f = K[k]; if (!f || /^sheet:/.test(k)) continue; var age = (now - (f.at || 0)) / 86400000; if (age > 60 && (f.n || 0) < 2 && knowConf(f) < 0.15) drop.push(k); } if (drop.length) { for (var i = 0; i < drop.length; i++) delete K[drop[i]]; try { think('mem', 'let go of ' + drop.length + ' stale fact(s) I’d stopped using'); } catch (e) {} try { rookSave(); } catch (e) {} } return drop.length; } catch (e) { return 0; } }
   function knowSteer() {
     try {
       var K = RK.knowledge || {}, qs = _toks(_lastUserText || ''), best = null, bn = 0; if (!qs.length) return '';
       for (var k in K) { var kt = _toks(K[k].title || k), n = 0; for (var i = 0; i < kt.length; i++) if (qs.indexOf(kt[i]) >= 0) n++; if (n >= 1 && n > bn) { bn = n; best = K[k]; } }
-      return best ? ('Draw on what you actually know about ' + best.title + ' (ground it in fact, don’t invent): ' + best.summary) : '';
+      return best ? ('Draw on what you actually know about ' + best.title + (knowConf(best) < 0.4 ? ' (it’s been a while — hold it loosely and double-check rather than stating flatly): ' : ' (ground it in fact, don’t invent): ') + best.summary) : '';
     } catch (e) { return ''; }
   }
   // ── LORE SHEET — a user-editable Google Sheet (published-to-web) becomes a live lorebook: each row is folded into the
@@ -50139,7 +50368,7 @@ Use this template for your response:
           var text = String((r && (r.generatedText || r.text)) || '').trim().replace(/^[\s>*"“'-]+/, '').replace(/^(?:[A-Za-z0-9 .'’_-]{1,28}):\s*/, '').trim();
           if (text.length > 700) text = text.slice(0, 700).replace(/\s+\S*$/, '') + '…';
           if (text && oc.thread.messages.length === beforeCount) {
-            oc.thread.messages.push({ author: 'ai', name: resolvedName, content: text });
+            oc.thread.messages.push({ author: 'ai', name: resolvedName, content: _clean(text, resolvedName) });
             try { _rrMark(sp); } catch (e) {}   // record the turn (cooldown + loop-cycle fairness)
             try { if (typeof oc.pushDataChanges === 'function') oc.pushDataChanges(); } catch (e) {}
             try { think('cog', 'round-robin — ' + resolvedName + ' takes a turn'); } catch (e) {}
@@ -50150,6 +50379,63 @@ Use this template for your response:
       }, function () { _rrBusy = false; done(false); });
     } catch (e) { _rrBusy = false; done(false); }
   }
+  // ── PINS (mined from Chloe-solo): user-curated ★ lines that RIDE ALONG in context so she can call back to them. ──
+  function pinAdd(text) { try { var s = String(text || '').trim().slice(0, 240); if (!s) return ''; var P = RK.pins || (RK.pins = []); P.push({ t: s, at: Date.now() }); while (P.length > 12) P.shift(); try { rookSave(); } catch (e) {} return s; } catch (e) { return ''; } }
+  function pinDrop(frag) { try { var P = RK.pins || [], f = String(frag || '').toLowerCase(), n = P.length; if (!f) { RK.pins = []; } else { RK.pins = P.filter(function (p) { return p.t.toLowerCase().indexOf(f) < 0; }); } try { rookSave(); } catch (e) {} return n - (RK.pins || []).length; } catch (e) { return 0; } }
+  function pinLine() { try { var P = RK.pins || []; if (!P.length) return ''; var pick = P.slice(-2).map(function (p) { return '“' + p.t + '”'; }).join(' · '); return 'they’ve pinned this as something that matters — keep it live and callable, don’t let it drop: ' + pick; } catch (e) { return ''; } }
+  // ── GOALS / SELF-INTENTS (mined from Chloe): open commitments + deferred self-intents she quietly carries and follows up on (undated; dated ones live in RK.schedule). ──
+  function goalAdd(text) { try { var s = String(text || '').trim().slice(0, 160); if (!s) return ''; var G = RK.goals || (RK.goals = []); G.push({ t: s, at: Date.now(), done: false }); while (G.length > 10) G.shift(); try { rookSave(); } catch (e) {} return s; } catch (e) { return ''; } }
+  function goalDone(frag) { try { var G = RK.goals || [], f = String(frag || '').toLowerCase(), hit = null; for (var i = G.length - 1; i >= 0; i--) { if (!G[i].done && (!f || G[i].t.toLowerCase().indexOf(f) >= 0)) { G[i].done = true; hit = G[i].t; break; } } if (hit) try { rookSave(); } catch (e) {} return hit || ''; } catch (e) { return ''; } }
+  function goalLine() { try { var G = (RK.goals || []).filter(function (g) { return !g.done; }); if (!G.length) return ''; var g = G[G.length - 1]; return 'a commitment you’re quietly carrying for them: ' + g.t + ' — let it shape what you steer toward and follow up when it fits, without forcing it'; } catch (e) { return ''; } }
+  // ── OUTPUT HYGIENE (mined from Chloe-bot): tidy obvious LLM artifacts. Conservative + idempotent — never rewrites meaning. ──
+  function _clean(text, who) {
+    var s = String(text == null ? '' : text); if (!s) return s;
+    try {
+      if (who) { var nm = String(who).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); if (nm) s = s.replace(new RegExp('^\\s*(?:' + nm + ')\\s*:\\s*', 'i'), ''); }   // strip own-name role-bleed ("Chloe: …")
+      if (((s.match(/```/g) || []).length % 2) === 1) s += '\n```';   // close an unbalanced code fence
+      s = s.replace(/^([^\n]*\S[^\n]*)(?:\n\1){2,}/gm, '$1');   // collapse 3+ identical consecutive lines
+    } catch (e) {}
+    return s.trim();
+  }
+  // ── NEURON-MINING (from the spiking-network samples): two biologically-motivated additions, each with the safety
+  //    guard the toy samples lacked — a HARD iteration cap (no open recursion) and decay + bounded accumulation. ──
+  // (A) RECURRENT LATERAL SETTLING: before the council votes, faculties' proposal strengths influence each other along
+  //     their Hebbian bonds for a CAPPED 2 iterations — positive bond + co-activation excites, negative inhibits
+  //     (graded lateral inhibition). Pure + module-level (testable); OFF by default (it changes which voice wins).
+  function settleProposals(proposals, live) {
+    try {
+      if (!proposals || proposals.length < 2 || !live) return;
+      var bondOf = {}; live.forEach(function (m) { if (m && m.self) bondOf[m.self.id] = m.bonds || {}; });
+      for (var iter = 0; iter < 2; iter++) {                                   // HARD CAP 2 — the sample's infinite-loop bug, fixed by design
+        var snap = {}; proposals.forEach(function (p) { snap[p.by] = p.intent.strength; });
+        proposals.forEach(function (p) {
+          var b = bondOf[p.by] || {}, lateral = 0;
+          proposals.forEach(function (q) { if (q.by !== p.by) lateral += (b[q.by] || 0) * (snap[q.by] || 0); });
+          p.intent.strength = Math.max(0.05, Math.min(1.5, (snap[p.by] || 0) + 0.12 * lateral));
+        });
+      }
+    } catch (e) {}
+  }
+  // (B) LEAKY INTEGRATOR — temporal summation: a signal accumulates over a half-life window; a reader fires on a
+  //     threshold crossing. The general primitive (we already do this ad-hoc for cortisol/reframe/rumination).
+  function leakAdd(key, signal, halflifeMs) {
+    try { var I = RK.integ || (RK.integ = {}), s = I[key] || (I[key] = { v: 0, at: 0 }), now = Date.now(), hl = halflifeMs || 600000; if (s.at) s.v *= Math.pow(0.5, (now - s.at) / hl); s.v = Math.max(0, s.v + (+signal || 0)); s.at = now; return s.v; } catch (e) { return 0; }
+  }
+  function leakGet(key, halflifeMs) {
+    try { var s = (RK.integ || {})[key]; if (!s) return 0; var hl = halflifeMs || 600000; return s.at ? s.v * Math.pow(0.5, (Date.now() - s.at) / hl) : (s.v || 0); } catch (e) { return 0; }
+  }
+  // BUILDING CONCERN — the new accumulator the primitive enables: sub-acute unease that PERSISTS across turns
+  //   accumulates (a clearly-good turn eases it); on a threshold crossing she names the PATTERN — distinct from
+  //   per-turn coping ("it's not just now, it's been building across our last few exchanges").
+  function concernTick(t) {
+    try {
+      var d = (typeof affectDims === 'function') ? affectDims() : { valence: 0.5 };
+      var threat = !!(RK.sentinel && RK.sentinel.category && Date.now() - (RK.sentinel.at || 0) < 30000);
+      var sig = 0; if (!threat) { if (d.valence < 0.45) sig = 0.45; else if (d.valence > 0.6) sig = -0.4; }
+      if (sig) leakAdd('unease', sig, 1800000);   // 30-min half-life
+    } catch (e) {}
+  }
+  function concernSteer() { try { return leakGet('unease', 1800000) >= 1.3 ? 'a quiet unease has been building across the last few exchanges — nothing acute, but it’s persistent; gently name the pattern or check in, rather than skating past it' : ''; } catch (e) { return ''; } }
   function composeReminder(base, steer, ctxLine, richLine) {
     try {
       var lead = steer ? (LEAD + ' ' + steer) : '';
@@ -50249,6 +50535,36 @@ Use this template for your response:
       var ex = RK.voiceEx || []; if (!ex.length) return '';
       var top = ex[0].text; if (top.length > 150) top = top.slice(0, 147).replace(/\s+\S*$/, '') + '…';
       return 'Your own voice sounds like this — match its texture (rhythm, tone, word-choice), do NOT reuse the words: “' + top + '”';
+    } catch (e) { return ''; }
+  }
+  // ── VOCAB + CONVERSATION steers (additive). variety: don't repeat openers; register: MATCH the user's level/length;
+  //    followup: deepen with a real question when they SHARE (not ask/vent). voiceSteer handles her-own-texture; these are new. ──
+  function varietySteer() {
+    try {
+      var ex = RK.voiceEx || []; if (ex.length < 2) return '';
+      var seen = {}, rep = '';
+      for (var i = 0; i < Math.min(4, ex.length); i++) { var op = String(ex[i].text || '').trim().toLowerCase().split(/\s+/).slice(0, 2).join(' '); if (op.length < 2) continue; seen[op] = (seen[op] || 0) + 1; if (seen[op] >= 2) rep = op; }
+      return rep ? ('you’ve opened several recent replies with “' + rep + '…” — start this one differently; vary the rhythm and reach for fresher words') : '';
+    } catch (e) { return ''; }
+  }
+  function registerSteer(t) {
+    try {
+      var s = String(t || '').trim(), w = s ? s.split(/\s+/) : [], wc = w.length; if (wc < 1) return '';
+      var avg = 0; for (var i = 0; i < wc; i++) avg += w[i].length; avg = avg / Math.max(1, wc);
+      if (wc <= 6) return 'they’re writing short and clipped — match that energy: keep it brief and direct, don’t pad or over-explain';
+      if (avg >= 6.2 && wc >= 12) return 'they write in a rich, elaborate register — meet it: precise, fuller sentences and a wider, sharper vocabulary, not simplified';
+      if (wc >= 45) return 'they’ve written at length — give a substantial reply that honours the effort, not a one-liner';
+      return '';
+    } catch (e) { return ''; }
+  }
+  function followupSteer(t) {
+    try {
+      var s = String(t || ''); if (!s || /\?/.test(s)) return '';
+      var ask = (typeof detectAsk === 'function') ? detectAsk(s) : null; if (ask && ask.kind === 'request') return '';
+      if ((typeof ROOK_VENT !== 'undefined') && ROOK_VENT.test(s)) return '';
+      if (s.trim().split(/\s+/).length < 4) return '';
+      var open = ((RK.bond && RK.bond.trust) || 0.5) > 0.4;
+      return (open && (typeof roll === 'function' ? roll() : 0.5) < 0.5) ? 'they’ve shared something real — show you’re tracking it with ONE specific, genuine follow-up question that opens it further; don’t interrogate, don’t go generic' : '';
     } catch (e) { return ''; }
   }
   function moodLine() { try { var ep = emotionPhrase(emotionNow()); if (ep) return ep; } catch (e) {} try { return resolvePlaceholders(army().about('how do you feel right now')).split('\n')[0]; } catch (e) { return ''; } }
@@ -50392,6 +50708,7 @@ Use this template for your response:
     try { think('meta', runSelfTest()); } catch (e) {}   // SELF-TEST: verify the deterministic layer once at wake; a failing line surfaces in the Thought
     try { var _iv = brainInvariants(); if (_iv.bad.length) think('meta', '⚠ state invariants: ' + _iv.bad.length + ' violation(s) on load — ' + _iv.bad.slice(0, 4).join('; ')); } catch (e) {}   // catch CORRUPT PERSISTED state on load (drifted/NaN values, blown caps) — only surfaces when something is actually wrongs stream (regression alarm)
     try { window.addEventListener('error', function (ev) { _logErr((ev && ev.message) + (ev && ev.lineno ? ' @' + ev.lineno : '')); }); window.addEventListener('unhandledrejection', function (ev) { var r = ev && ev.reason; _logErr('promise: ' + ((r && (r.message || r)) || '?')); }); } catch (e) {}   // DIAGNOSTICS: capture uncaught errors so /brain status can surface them (incl. the kind of crash logs that are otherwise invisible)
+    try { if (oc && Array.isArray(oc.messageRenderingPipeline)) oc.messageRenderingPipeline.push(function (d) { try { if (!load().tidyReplies) return; var m = d && d.message; if (!m || m.author !== 'ai' || typeof m.content !== 'string') return; m.content = _clean(m.content, (m.name || (oc.character && oc.character.name) || '')); } catch (e) {} }); } catch (e) {}   // OUTPUT HYGIENE (opt-in, display-only): tidy the ACTUAL reply on render — strip name-bleed, balance fences, collapse repeats. OFF by default; /brain rook tidy on to enable + verify in-app
     primeBacklog();   // walk the recent backlog into working memory + refresh caches (extracted so a thread-switch can re-run it)
     _lastThreadId = _curThreadId();   // remember which thread we primed
     // every new message keeps the brain current; a user turn that expects a reply also gets steered
@@ -50406,6 +50723,7 @@ Use this template for your response:
         if (last.author === 'user' && RK.rrLoop && RK.rrLoop.on) { try { rrLoopStop('you jumped in'); } catch (e) {} }   // ROUND-ROBIN LOOP: the user speaking ALWAYS interrupts the auto-cast
         if (last.author === 'ai' && !_priming && load().autospeak) { try { _speak(last.content); } catch (e) {} }   // VOICE: speak each new reply aloud with mood-mapped voice (opt-in)
         feedMessage(last);
+        if (last.author === 'ai' && !_priming) { try { afferentScan(last.content); } catch (e) {} }   // AFFERENT FEEDBACK: hear my own reply, score it vs this turn's steer, adapt the next turn (never gates this one)
         try { noteActivity(); } catch (e) {}   // any message resets the idle clock (wakes from a nap)
         if (last.author === 'user') { var _msg = _safeInput(last.content); try { think('cog', 'reading you: ' + _msg.replace(/\s+/g, ' ').slice(0, 56)); } catch (e) {} perceive(_msg); try { timerScan(_msg); } catch (e) {} try { occAppraise(_msg); } catch (e) {} try { knowTick(_msg); } catch (e) {} }   // THE PERCEPTION PIPELINE (see PERCEPT): the full user→brain read — FORCE-002 seam, neurochemistry, pain/endorphin, contagion, habituation, allostatic load, attachment, the senses, secretary scans, sleep, then selfTick — on EVERY user message, each step error-isolated
         pushState('read', { read: army().inspect(), mood: moodLine() });   // live read + feeling, every turn (state-push factory)
@@ -50896,7 +51214,7 @@ Use this template for your response:
   }
   var _fetchSched = makeSched(2);
   function _bkFetch(url) {   // iframe-ORIGINATED fetches — whitelisted (parent-side trust boundary) + scheduled + coalesced
-    if (!/^https:\/\/(en\.wikipedia\.org|[a-z0-9-]+\.fandom\.com|docs\.google\.com\/spreadsheets)\//.test(url)) return Promise.resolve({ ok: false });
+    if (!/^https:\/\/(en\.wikipedia\.org|[a-z0-9-]+\.fandom\.com|docs\.google\.com\/spreadsheets|api\.dictionaryapi\.dev)\//.test(url)) return Promise.resolve({ ok: false });
     return _fetchSched(function () {
       if (typeof root === 'undefined' || !root || typeof root.superFetch !== 'function') return Promise.resolve({ ok: false });
       return root.superFetch(url).then(function (r) { return r.text(); }).then(function (t) { return { ok: true, text: String(t || '').slice(0, 8000) }; }, function () { return { ok: false }; });
