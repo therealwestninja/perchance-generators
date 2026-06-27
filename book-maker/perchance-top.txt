@@ -1,0 +1,25 @@
+$meta
+  title = Book-maker
+  description = A brain-steered storybook builder. Pick a genre, bring your cast, choose a narrator, and write a book chapter by chapter - streaming, with continue-from-cursor and a saved library. Characters import from AI-Character-Chat. Free model, runs in your browser.
+
+// ---- imports (top editor only; keep this file ASCII - Perchance audits the DSL pane) ----
+aiTextPlugin = {import:ai-text-plugin}
+// kv-plugin: the saved-book library (My Books). Off-platform we fall back to localStorage.
+kv = {import:kv-plugin}
+// super-fetch-plugin: the brain's web lookups (🔎 Research) go through this CORS proxy.
+superFetch = {import:super-fetch-plugin}
+// comments-plugin: reader comments, toggled by the pinned button top-right of the frame.
+commentsPlugin = {import:comments-plugin}
+// HNE gives us pickFromBank: anti-repetition motif rotation with cross-session memory.
+hne = {import:advanced-hypnosis-narration-engine}
+// optional, for cover / scene art later:
+// textToImagePlugin = {import:text-to-image-plugin}
+// optional, for character-file upload + share links:
+// uploadPlugin = {import:upload-plugin}
+
+// The HTML pane holds the whole app (book-maker.html body + book-maker.js). It may use
+// non-ASCII freely (it's an iframe), unlike this top editor. The Chloe brain libs
+// (brain.min.js / nation.js / intent-directive.js / rook-core.js) are OPTIONAL: when
+// absent, Book-maker falls back to its built-in beat template (still fully functional).
+// To enable brain-steered beats on Perchance, inline those four libs as <script> blocks
+// in the HTML pane (same pattern as the rook-ai bridge build).
