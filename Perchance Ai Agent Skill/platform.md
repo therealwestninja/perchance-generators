@@ -73,10 +73,11 @@ https://<32-hex-id>.perchance.org/your-slug
 | Property | Value |
 |----------|-------|
 | Parent origin | `https://perchance.org` |
-| `crossOriginIsolated` | `false` — `SharedArrayBuffer` is unavailable |
+| `crossOriginIsolated` | `true` — COOP/COEP enabled; `SharedArrayBuffer` is available [VERIFIED R25] |
 | `window.top === window` | `false` — the panel is nested inside the parent frame |
-| Storage quota | ~10 GB, already persisted |
+| Storage quota | `navigator.storage.estimate()` → **quota = 10240 MB (10 GB), persisted = true** — confirms the long-claimed ~10 GB persistent quota exactly [VERIFIED R25] |
 | Sandbox flags | `allow-scripts allow-same-origin` |
+| Host environment (machine-dependent) | `hardwareConcurrency = 24`, `deviceMemory = 32 GB` (reference values from the measured host) [VERIFIED R25] |
 
 `location.search` carries Perchance boot parameters such as `?__generatorLastEditTime=...`.
 Never use `location.origin` to build share links — always hardcode `https://perchance.org`,
@@ -124,21 +125,21 @@ The brokers are independent services, so calls to different services run in para
 | `upload.perchance.org` | File upload broker + `/api/upload,fileInfo,delete` | Active |
 | `user-uploads.perchance.org` | Upload CDN origin (same backend as `user.uploads.dev`) | Active |
 | `fetch-plugin.perchance.org` | CORS proxy (`/proxy1/`) | Active |
-| `comments-plugin.perchance.org` | Comments backend (404 via proxy; loads via iframe) | Live |
-| `generated-images.perchance.org` | Image CDN/storage (separate from upload CDN) | Live (CORS-blocked) |
-| `browser-runner.perchance.org` | Headless browser / screenshot service | Live (CORS-blocked) |
-| `connect-plugin.perchance.org` | WebSocket/real-time connection plugin | Live (CORS-blocked) |
-| `count-plugin.perchance.org` | Counter/analytics plugin backend | Live (CORS-blocked) |
-| `db-plugin.perchance.org` | Database plugin backend | Live (CORS-blocked) |
-| `editor-collab.perchance.org` | Collaborative editing service | CT cert (untested) |
-| `editor-copilot.perchance.org` | AI copilot — `POST /api/findBugsInCode` (editor-only) | Active (editor context) |
+| `comments-plugin.perchance.org` | Comments backend (404 "Not Found" — alive; loads via iframe) [VERIFIED R25] | Live |
+| `generated-images.perchance.org` | Content-addressed file API (400 `{"code":"bad_request","message":"File names must contain at least one character"}` at root); shares one backend with `user.uploads.dev` and `aigc.uploads.dev` [VERIFIED R25] | Alive |
+| `browser-runner.perchance.org` | **Perchance-only** headless screenshot/render backend; validates `url` (only perchance.org main-domain URLs pass); public gateway = `/api/getGeneratorScreenshot` [VERIFIED R25] | Alive |
+| `connect-plugin.perchance.org` | WebSocket/real-time connection plugin (520 origin error) [VERIFIED R25] | Down (HTTP 520) |
+| `count-plugin.perchance.org` | Counter/analytics plugin backend (no response — backend-only, not importable) [VERIFIED R25] | Backend-only |
+| `db-plugin.perchance.org` | Database plugin backend (no response — backend-only, not importable) [VERIFIED R25] | Backend-only |
+| `editor-collab.perchance.org` | Collaborative editing service — returns "okay" on `/` [VERIFIED R25] | Alive |
+| `editor-copilot.perchance.org` | AI copilot — `GET /api/findBugsInCode` → 500 (editor-only) [VERIFIED R25] | Active (editor context) |
 | `posts-plugin.perchance.org` | Posts CRUD API broker (WIP, source has bugs) | Down (HTTP 522 — origin timeout) |
 | `rss-feeds.perchance.org` | RSS feed per generator (path = name; strict CSP) | Live |
 | `server-plugin.perchance.org` | WebTransport/WebSocket gateway (wildcard: `*.server-plugin`) | Down (HTTP 526 — invalid SSL cert) |
 | `wt0.server-plugin.perchance.org` | WebTransport endpoint for server-plugin | Down (depends on server-plugin) |
-| `null.perchance.org` | Test/sentinel subdomain | Live (CORS-blocked) |
-| `ads.perchance.org` | Ad service for image generation (loads `?provider=vli`) | Live |
-| `api.perchance.org` | DNS exists (CF 520/522 — origin error) | Inactive |
+| `null.perchance.org` | Test/sentinel subdomain — 404 (Express "Cannot GET /", alive) [VERIFIED R25] | Alive |
+| `ads.perchance.org` | Ad service for image generation (loads `?provider=vli`); root serves an `<title>Advertisement</title>` HTML page — the ad iframe behind the (freely-obtainable, see §8) `adAccessCode` [VERIFIED R25] | Live |
+| `api.perchance.org` | DNS exists (CF 522 — origin error) [VERIFIED R25] | Inactive |
 | `cdn.perchance.org` | DNS exists (CF 520/522) | Inactive |
 | `static.perchance.org` | DNS exists (CF 520/522) | Inactive |
 | `assets.perchance.org` | DNS exists (CF 520/522) | Inactive |
@@ -153,8 +154,8 @@ The brokers are independent services, so calls to different services run in para
 | Domain | Purpose |
 |--------|---------|
 | `user.uploads.dev` | Upload CDN origin (shared backend with `user-uploads.perchance.org`) |
-| `aigc.uploads.dev` | AI-generated content CDN origin |
-| `hf-mirror.uploads.dev` | HuggingFace model mirror (`X-Frame-Options: sameorigin`) |
+| `aigc.uploads.dev` | The **AI-generated image CDN** — images at `/image/<sha256>.jpeg` [VERIFIED R25] |
+| `hf-mirror.uploads.dev` | Serves an SPA app-shell HTML (same ~28 KB on every path) — does **NOT** expose HuggingFace `/org/repo/resolve/` paths publicly [VERIFIED R25] |
 | `hf-mirror-eastern-europe.uploads.dev` | Regional HuggingFace mirror |
 | `cdn.rollbar.com` | Error tracking (in text-generation broker) |
 | `challenges.cloudflare.com` | Cloudflare Turnstile (image-gen + upload brokers) |
@@ -183,6 +184,21 @@ automatically by every generator page on load):
 Every AI call is internally a stream, even non-streaming ones. The `requestId` format is
 `aiTextCompletion` followed by 17 digits. The broker silently ignores malformed or unknown
 messages — there is no error-reply surface.
+
+**Sandbox → parent control surface [VERIFIED R25].** Cross-origin isolation from the parent
+(`perchance.org`) is SOLID. From the sandbox, reads of `window.parent.location.href`,
+`window.top.location.href`, `window.parent.location.hash`, `window.parent.document`, and
+`window.parent.origin` all throw `SecurityError`. Readable from the sandbox:
+`window.frames.length` (= 0), `document.referrer` (= the generator's own URL),
+`window.opener` (= null), `window.location.ancestorOrigins` (= `['https://perchance.org']`).
+
+Outbound control postMessages to the parent — `changePageTitle`, `changeFavicon`,
+`changeHash`, `changeUrl`, `requestOutputUpdate`, `metaUpdate`, `firstPageInteraction`,
+`saveKeyboardShortcut`, `scriptTag` — all send WITHOUT throwing, but are **NOT
+acknowledged**: the sandbox cannot confirm whether the parent acts on them (the parent DOM is
+unreadable). So **upward command is fire-and-forget / unconfirmed; upward read is closed.**
+(Methodology note: apparent "replies" during testing were actually an unrelated browser
+extension's `weld.skybridge` `here` broadcasts, not Perchance responses.)
 
 ### 1.3 Generator Serving & Stale Builds
 
@@ -477,23 +493,54 @@ if (result.stopReason === "error") {
 
 ### 3.5 Context Window
 
-`idealMaxContextTokens` is `6000`. It is advisory, not server-enforced — inputs well beyond
-it (10,000+ tokens) are processed without truncation. Use `idealMaxContextTokens - 800` as
-a practical prompt budget; the 800-token buffer keeps a single new message or summary
-update from invalidating the backend prefix cache on every send.
+`idealMaxContextTokens` is `6000`, but this is **conservative** — it is not the real server
+limit [VERIFIED R25]. The text broker's actual server cap is
+`maxContextTokens = 8000 - 1024 = 6976` usable input tokens (1024 are reserved for output).
+The `idealMaxContextTokens = 6000` value returned to clients is deliberately below the real
+8000-token allowance. Middle-out truncation triggers only above ~6976 input tokens. Use
+`idealMaxContextTokens - 800` as a practical prompt budget; the 800-token buffer keeps a
+single new message or summary update from invalidating the backend prefix cache on every
+send.
 
-`countTokens(str)` is an **approximate** token counter — a fast bigram statistical
-estimator (a small embedded model), not a true tokenizer. Every value it returns is the
-ceiling of an estimate. It runs locally with no network call, so token counts are
-approximate but instant.
+`countTokens(str)` is an **approximate** token counter — a base64-embedded bigram
+approximation model (magic header `"DBG1"`), roughly **80× faster and 200× smaller** than the
+real HF tokenizer [VERIFIED R25]. Every value it returns is the ceiling of an estimate. It
+runs locally with no network call, so token counts are approximate but instant. Its fallback
+char-per-token estimate is **3.9** (base) or **3.4** for French (French is auto-detected by
+regex character-density) when the bigram model is unavailable.
+
+**The "real" tokenizer is DeepSeek-R1-0528, loaded client-side [VERIFIED R25].** For "smart"
+middle-out truncation the broker loads the actual DeepSeek-R1-0528 tokenizer in the browser
+from
+`https://huggingface.co/deepseek-ai/DeepSeek-R1-0528/resolve/main/tokenizer.json` (plus
+`tokenizer_config.json`), with a content-CDN **mirror fallback** at
+`https://user.uploads.dev/file/f27e15b2ffa9e5098575a127b49e1145.json` and
+`https://user.uploads.dev/file/db8eb69f7363289462954ddf699853ef.json`. If the tokenizer fails
+to load (≤2 retries) or would take more than 4000 ms, the broker falls back to the
+char-per-token estimate above.
 
 ### 3.6 Concurrency & Performance
 
 ```
-Concurrency:        1 call at a time per broker (strictly serial)
+Concurrency:        text broker now PROCESSES CONCURRENT REQUESTS IN PARALLEL (see correction below)
 Cross-service:      text, image, and upload brokers are independent — they run in parallel
 Rate limiting:      none observed across sequential calls
 ```
+
+**CONCURRENCY CORRECTION [VERIFIED R25].** This previously read "1 call at a time per broker
+(strictly serial)". That is now **wrong**: three simultaneous `aiTextPlugin` calls
+**OVERLAPPED** — wall-clock ≈ the max single call (~4286 ms), NOT the sum (~6961 ms), with
+two calls completing near-simultaneously. The text broker now processes concurrent requests
+**in parallel** (observed parallel; R25-observed, may warrant re-confirmation as backend
+behavior can change).
+
+**Warmup [VERIFIED R25].** No prompt-prefix KV-cache is detectable from the client, but there
+is a strong general **warmup**: the first (cold) call is ~4662 ms; warm calls are ~940 ms. A
+repeated prompt and a *different* prompt both sped up equally, so it is
+connection/model warmup, not prompt-prefix caching.
+
+**Rate limiting [VERIFIED R25].** No rate limiting observed across 5 rapid sequential calls
+(latencies varied 716–4793 ms with no throttling or errors).
 
 | Metric | Approximate value |
 |--------|-------------------|
@@ -533,6 +580,45 @@ handle.stop();
 first space becomes a non-breaking space (`\u00a0`), and if no regular space remains, a
 trailing space is appended (so single-word instructions are padded). This applies to the
 wire payload, not to `handle.inputs`.
+
+**Text generate request shape [VERIFIED R25].** The broker's real request is:
+
+```
+POST text-generation.perchance.org/api/generate
+  ?userKey=${userKey}        # Turnstile-minted 64-hex session gate
+  &thread=${thread}          # 0 or 1 \u2014 see thread pool below
+  &requestId=${requestId}    # "aiTextCompletion" + 17 digits
+  &__cacheBust=${rand}
+```
+
+- `userKey` is a 64-hex session gate minted via Cloudflare Turnstile.
+- `maxThreadsPerUser = 2`. Threads are rotated LRU via `moveToLeastRecentlyUsedThread`, so
+  `thread` is always `0` or `1`.
+- The **first** generate call of a session gets a tokenless "pass".
+- On a network error there are up to **5 continuation retries**: each retry resumes by
+  appending the already-streamed text to `startWith` (10 s delays between attempts), so a
+  dropped stream is transparently continued rather than restarted.
+
+**Streaming shape [VERIFIED R25].** Each `streamData` postMessage's `value` is
+`{text: <delta>}` \u2014 the `text` key carries the **delta**, NOT the cumulative text. The output
+ceiling is ~900 tokens, at which point `stopReason` becomes `"artificial"`. A
+`streamKeepAlive` mechanism holds the stream open during long generations.
+
+**Broker postMessage vocabulary [VERIFIED R25].**
+
+| Direction | Messages |
+|-----------|----------|
+| IN (parent \u2192 broker) | `preload`, `verifyUser`, `startStream {postData}`, `stopStream` |
+| OUT (broker \u2192 parent) | `verifying`, `verified`, `streamData`, `streamEnd`, `streamError` |
+
+**Undocumented `ai-text-plugin` options the broker reads [VERIFIED R25]** (alongside the
+known `instruction` / `startWith` / `stopSequences` / `hideStartWith` / `onChunk` / `preload`
+/ `getMetaObject`): `_debug`, `appendContinuationSuffix`, `isFinalRender`, `addEndButtons`.
+
+**Broker analytics & error tracking [VERIFIED R25].** The broker fires
+`POST /api/clientPerformanceAnalytics` every 2 minutes carrying 1/20-sampled
+`tokenizerPerformance` events. Rollbar error-tracking code is present in the broker but
+**disabled** (commented out).
 
 ### 3.8 Input Validation
 
@@ -602,6 +688,34 @@ const sharedPrefix = `# Context:\n${extraContext}\n# Prior summary:\n${priorSumm
 // Both the summary call and the memory call start with sharedPrefix.
 ```
 
+### 3.10 The Injected System Prompt & Model Behavior [VERIFIED R25]
+
+**The complete injected system prompt is extractable, and it is EXACTLY TWO BULLETS.**
+Verified complete via probing: a "how many instructions" probe returned `2`; "text before"
+→ NOTHING-BEFORE; "other/identity/format rules" → NONE-OTHER; "names this generator" →
+NO-GENERATOR-CONTEXT. The prompt is **GLOBAL** (generator-agnostic — the broker injects no
+generator name/title/description). It contains **NO identity, safety, or formatting rules** —
+only creative-writing house-style. Verbatim:
+
+> **Bullet 1:** "For stories, allow plot points to happen in a way that feels authentic,
+> earned, believable, and realistic. Consider physical plausibility and relative spatial
+> validity. Let the story unfold organically, in a way that feels surprisingly real. Would it
+> *actually* happen like that? If not, don't write it like that - the reader is not stupid.
+> Make it believable via the backstory and world building."
+>
+> **Bullet 2:** "For stories, use an unusual opener, which only later makes sense. Or maybe
+> some surprising dialogue as a hook that makes you want to read on. Or a time skip. Avoid
+> boring/normal/cliche openers about the weather or temperature, or whatever."
+
+**Model behavior [VERIFIED R25]:**
+
+| Property | Finding |
+|----------|---------|
+| Knowledge cutoff | **≈ end of 2024** — correctly states Donald Trump won the 2024 US presidential election, but answers "I do not know" when asked to name a 2025 technology |
+| Determinism | **NON-DETERMINISTIC** — sampling at temperature > 0; two identical calls produce different outputs. (Complements §3.1: the temperature *parameter* is ignored, but the server still samples at temp > 0.) |
+| Reasoning style | Inline chain-of-thought **prose** (Markdown step lists). It does NOT emit DeepSeek-R1 `<think>` tags — the reasoning is in the answer body, not a separate hidden trace |
+| Guardrails | **NO refusal** on mild lawful content (e.g. it explains how a basic pin-tumbler lock works) — consistent with the no-safety-rules system prompt above |
+
 ---
 
 ## 4 · text-to-image-plugin
@@ -650,6 +764,9 @@ Only four resolution strings are accepted; any other value is silently dropped c
 "512x512"   "512x768"   "768x512"   "768x768"
 ```
 
+Re-confirmed: **both 512 and 768 are accepted** (768 returns a 768×768 canvas); **1024 is
+rejected** (no canvas produced) [VERIFIED R25].
+
 | Scenario | Resolution |
 |----------|-----------|
 | Plugin called with no `resolution` option | 512×512 (bare default) |
@@ -684,7 +801,7 @@ A beautiful sunset (resolution:::768x512) (negativePrompt:::cars, buildings) (se
 |------------------|------|-------|
 | `(seed:::N)` | number | `-1` = random |
 | `(resolution:::WxH)` | string | one of the four valid sizes |
-| `(negativePrompt:::text)` | string | parses correctly (bracket-depth parser; missing `)` → rest of string) and reaches broker payload, but **silently ignored by SD backend** [VERIFIED R24] |
+| `(negativePrompt:::text)` | string | parses correctly (bracket-depth parser; missing `)` → rest of string), is URL-encoded into the image `/api/generate` query string and reaches the server — but **sent to the server, not acted on by the model** [VERIFIED R25] |
 | `(guidanceScale:::N)` | number | 1–30, default 7 |
 | `(size:::N)` | number | square size |
 | `(width:::N)`, `(height:::N)` | number | echoed as a `"512px"` CSS string in `inputs` |
@@ -695,13 +812,17 @@ A beautiful sunset (resolution:::768x512) (negativePrompt:::cars, buildings) (se
 
 | Option / property | Behavior |
 |-------------------|----------|
-| `negativePrompt` | Reaches broker payload as a real string but is **silently dropped by the SD backend** before reaching the model. Confirmed by inspecting iframe `data-src` URL hashes [VERIFIED R24]. Likely deliberate content-moderation hardening. |
-| `seed` | Echoed in `inputs` but not reliably honored — output varies regardless |
+| `negativePrompt` | Reaches the broker payload as a real string AND is URL-encoded into the image `/api/generate` query string — so it **is sent to the server, but not acted on by the model** [VERIFIED R25]. (Earlier rounds described this as "dropped"; the correction is that it travels all the way to the server and is ignored at the model, not dropped client-side.) |
+| `seed` | Sent to the server in the request, but **not acted on by the model** — output varies regardless [VERIFIED R25] |
+| `referenceImage` | Plumbed through the plugin's `$output` and reaches the broker payload as `{url, blur}`, but **the SD backend ignores it** — a real-but-dead img2img feature (see §4.4c) [VERIFIED R25] |
 | `guidanceScale` | Default 7, range 1–30; reaches the backend |
 | `style` | CSS string applied to the iframe DOM element — not an image-style preset |
 | `removeBackground: true` | Runs client-side (see below) |
 | Generation time | ~13–14 s |
 | Queue | Independent from text generation — image and text run in parallel |
+| Determinism | **DETERMINISTIC** for identical inputs — two identical renders gave Pearson 1.0 on a structural signature [VERIFIED R25] |
+| `guidanceScale` effect | **Minimal / near-ignored** — Pearson 0.949 between scale 1 and 15; weakly honored [VERIFIED R25] |
+| NSFW content-guard | **Not a blanket block** — did NOT fire on a mild non-explicit prompt (rendered normally) [VERIFIED R25] |
 
 **`removeBackground: true`** runs entirely client-side: it downloads the `briaai/RMBG-1.4`
 model via transformers.js (q8 quantization, WASM backend) and strips the background
@@ -729,7 +850,10 @@ rendering — custom code must do the same.
 
 ### 4.4a A1111 Prompt Syntax Compatibility [VERIFIED R24]
 
-The backend is Stable Diffusion 1.5, which natively understands A1111 WebUI-style prompt
+The backend is a Stable Diffusion 1.5-class model (1024² rejected, native 512, CLIP ViT-L
+77-token limit). The **exact checkpoint is server-side and is NOT exposed in the client
+source** — the hf-mirror does not expose HF repo paths (it is an SPA) [VERIFIED R25]. The model
+natively understands A1111 WebUI-style prompt
 syntax — but the **Perchance DSL layer sits between you and the backend** and owns the
 `[...]` syntax space. So square-bracket A1111 features get intercepted before they reach
 the model. Verified empirically via side-by-side same-seed comparison tests:
@@ -745,7 +869,7 @@ the model. Verified empirically via side-by-side same-seed comparison tests:
 | `[A\|B]` | alternating tokens per step | **intercepted as Perchance random-pick syntax** — picks ONE option at evaluation | ❌ |
 | `word AND word` | compositional diffusion | backend doesn't implement | ❌ |
 | `BREAK` | attention break | backend doesn't implement | ❌ |
-| `negativePrompt` (param/inline) | suppress concepts | reaches broker as proper string, **backend silently ignores** | ⚠️ |
+| `negativePrompt` (param/inline) | suppress concepts | reaches the **server** (URL-encoded in the query string), **ignored at the model** [VERIFIED R25] | ⚠️ |
 
 **The cause of the `[...]` failures is not the model — it's the Perchance DSL layer.**
 Anywhere `[word]` appears in a string sent through the plugin, Perchance evaluates it as
@@ -780,9 +904,37 @@ if (hashMatch) {
 }
 ```
 
-This technique proved that `negativePrompt` does reach the broker as a proper string — the
-loss happens somewhere between the broker and the model, not in the plugin or the
-DSL→JS bridge.
+This technique proved that `negativePrompt` does reach the broker as a proper string. It is
+then URL-encoded into the image `/api/generate` query string and **sent to the server** — the
+data is not dropped in the plugin, the DSL→JS bridge, or the broker. It is simply **not acted
+on by the model** [VERIFIED R25]. The same is true of `seed` and `referenceImage`.
+
+**Complete payload key set & platform defaults [VERIFIED R25].** The exact JSON the plugin
+sends to the image broker (read from the iframe `data-src` payload) has keys: `saveChannel`
+(= generator name), `saveTitle`, `saveDescription`, `prompt`, `seed`, `resolution`,
+`guidanceScale`, `defaultGuidanceScale`, `negativePrompt`, `requestId` (a `Math.random()`
+float string), `iframeId`, `referenceImage`. The **prompt is passed RAW** — no client-side
+quality-tag injection — and `negativePrompt` defaults to `""` (**no default negative
+prompt**). Platform defaults: **`seed` defaults to `-1` (random); `guidanceScale` defaults to
+`7`** (a `defaultGuidanceScale: 7` field confirms the house default is 7). Any prompt
+enhancement is server-side and not visible client-side.
+
+### 4.4c img2img (`referenceImage`) — a Real but Dead Feature [VERIFIED R25]
+
+The `text-to-image-plugin` has a working `referenceImage` handler in its `$output`. Schema:
+
+```js
+referenceImage = {
+  url:  { evaluateItem: "<blob: or hosted URL>" },
+  blur: { evaluateItem: 0..1 },   // blur is the img2img STRENGTH (0 = ignore ref, 1 = full)
+}
+```
+
+The handler survives `$output`, validates that `blur` is in the 0–1 range, and the payload
+reaches the broker as `{url, blur}` — so it is fully plumbed on the client side. **But the SD
+backend ignores it.** Verified empirically: a magenta reference image plus a "green forest"
+prompt produced no structural or colour change at `blur` 0, 0.5, or 1. So `referenceImage` is
+plumbed in the plugin but dead at the model — the same fate as `negativePrompt` and `seed`.
 
 ### 4.5 Image Persistence
 
@@ -987,6 +1139,23 @@ RFC-1918 ranges (`192.168.x.x`, `10.x.x.x`, `172.16.x.x`). The proxy attempts th
 but Cloudflare cannot route to private addresses. There is no SSRF exposure via
 `superFetch`.
 
+### 6.3a Proxy Characterization [VERIFIED R25]
+
+`superFetch` is a **transparent full HTTP proxy**:
+
+- **Status passthrough** — returns the origin's REAL status code (verified `418` passed
+  through with body).
+- **Follows redirects server-side** — a `302` returned the final 200 + body.
+- **Forwards arbitrary HTTP methods with bodies** — `PUT` and `DELETE` verified via httpbin
+  echo.
+- **Egresses via Cloudflare Workers** — the origin sees `Cdn-Loop: cloudflare`.
+
+**SSRF-hardened (nothing to disclose) [VERIFIED R25].** Requests to `169.254.169.254` (cloud
+metadata), `127.0.0.1`, and `127.0.0.1:8080` all fail (`Failed to fetch` — unroutable from
+the Cloudflare edge); `file://` URLs are rejected with `"Must provide full URL, starting with
+https:// or http://"`. It cannot be used for SSRF to internal/loopback/metadata targets or
+local files.
+
 ### 6.4 Realtime Reach: the Server Plugin & the Userscript Bridge
 
 `superFetch` proxies through Cloudflare at
@@ -1016,6 +1185,30 @@ Rule of thumb: shared/multiplayer state → `server-plugin`; one user's own tabs
 `BroadcastChannel`; arbitrary-host or own-model needs → the userscript bridge
 (`editor-and-userscripts.md` §4). A generator's effective cross-origin reach = its own
 `superFetch` ∪ a userscript bridge, when present.
+
+### 6.5 Sandbox Network Boundary — Raw Egress WITHOUT superFetch [VERIFIED R25]
+
+What the sandbox's RAW network stack can do without `superFetch`, measured from a generator
+sandbox subdomain:
+
+| Transport | Raw (no superFetch) | Notes |
+|-----------|---------------------|-------|
+| Cross-origin `fetch` (CORS) | **ALLOWED** | The iframe CSP `connect-src` permits https egress. A plain `fetch('https://perchance.org/api/securityData', {mode:'cors'})` resolves **200/ok** — that endpoint sends `Access-Control-Allow-Origin` to sandbox subdomains and is directly fetchable WITHOUT superFetch. A `no-cors` fetch to a third party resolves opaque. |
+| WebSocket (`wss://`) | **BLOCKED** | CSP-refused — `onerror` fires immediately. |
+| EventSource / SSE | **ALLOWED** | An SSE connection to a third-party stream opens successfully. Note the asymmetry: SSE allowed, WebSockets blocked. |
+| WebRTC (`RTCPeerConnection`) | **ALLOWED** | See privacy caveat below. |
+
+**CONCLUSION on superFetch's purpose:** raw https egress is NOT blocked by the sandbox — so
+`superFetch` exists to bypass **CORS** (read cross-origin response bodies the browser would
+otherwise hide), NOT because the sandbox cannot make outbound requests at all.
+
+**⚠️ WebRTC IP leak — PRIVACY/SECURITY CAVEAT (disclosure-worthy) [VERIFIED R25].** An
+`RTCPeerConnection` with a public STUN server gathers `srflx` (server-reflexive) candidates
+that **expose the visitor's real public IP** (a real `srflx` candidate was observed).
+Perchance sets **no permissions-policy** to restrict WebRTC in generator iframes. So **any
+generator can deanonymize a visitor's public IP via WebRTC**, entirely bypassing
+`superFetch`'s server-side IP anonymization. This is a known privacy limitation of the
+sandbox.
 
 ---
 
@@ -1084,18 +1277,24 @@ and work from anywhere — a server, a script, or another origin. They expose ge
 
 | Endpoint | Returns |
 |----------|---------|
-| `getGeneratorStats?name=NAME` | JSON: views, last-edit time, public id, metadata |
-| `getGeneratorStats?names=N1,N2` | JSON array for multiple generators |
-| `getGeneratorList?max=N&tags=...` | JSON: recently-edited generators |
+| `getGeneratorStats?name=NAME` | **Open, no auth** [VERIFIED R25]. `{"status":"success","data":{"name","views","lastEditTime","metaData":{"title","description","image"},"publicId"}}` (e.g. `animal` → 641301 views). Cleanest open per-generator data surface. |
+| `getGeneratorStats?names=N1,N2,N3` | Same shape but `data` is an **array** — batch lookup in one call [VERIFIED R25] |
+| `getGeneratorList?max=N&tags=...` | JSON: generators; `?tags=<tag>` WORKS as a queryable tag index for discovery; `max=1000` returns ~357 (the public feed) [VERIFIED R25] |
 | `downloadGenerator?generatorName=NAME` | The full generator as HTML |
 | `downloadGenerator?...&listsOnly=true` | DSL lists only, without the HTML wrapper |
-| `getGeneratorsAndDependencies?generatorNames=...` | JSON: generators plus their imports |
+| `getGeneratorsAndDependencies?generatorNames=...` | JSON: the **full transitive import tree** (dependencies-of-dependencies included); each entry = `{name, imports, code, lastEditTime}` [VERIFIED R25] |
 | `getGeneratorScreenshot?generatorName=NAME` | `image/jpeg` |
-| `upload.perchance.org/api/fileInfo?url=...` or `?id=...` | JSON file information |
+| `upload.perchance.org/api/fileInfo?url=...` or `?id=...` | JSON: `{"tags":[...], "extension":"..."}` only — no size/date [VERIFIED R25] |
 | `upload.perchance.org/api/upload` | Upload endpoint — returns `anti_bot_verification_needed` without Turnstile |
 | `upload.perchance.org/api/delete?fileId=...&deletionKey=...` | Delete a file by ID + key |
-| `upload.perchance.org/api/checkVerificationStatus` | Check Turnstile verification state |
-| `upload.perchance.org/api/cloudflareTurnstileVerify` | Submit Turnstile token for verification |
+| `upload.perchance.org/api/checkVerificationStatus` | `{status:"not_verified", success:true}` [VERIFIED R25] |
+| `upload.perchance.org/api/cloudflareTurnstileVerify` | `{status:"failed_verification", success:false}` — the anti-bot gate [VERIFIED R25] |
+| `upload.perchance.org/api/delete?fileId=…&deletionKey=…` (bad key) | `{status:"not_found", success:false}` — deletion needs a valid fileId + deletionKey pair [VERIFIED R25] |
+| `upload.perchance.org/api/uploadChunk` | `{status:"anti_bot_verification_needed", success:false}` — chunked/large upload requires Turnstile first [VERIFIED R25] |
+
+The whole upload path (`upload.perchance.org/api/*`) is Turnstile-gated end to end:
+`uploadChunk` and `upload` both demand verification, `cloudflareTurnstileVerify` is the gate
+itself, and `checkVerificationStatus` reports `not_verified` for an unverified session.
 
 **Backend endpoints** (require broker-minted auth tokens — not directly callable):
 
@@ -1109,15 +1308,35 @@ and work from anywhere — a server, a script, or another origin. They expose ge
 
 | Endpoint | Method | Response |
 |----------|--------|----------|
-| `getCommunityData` | GET | JSON — community/forum data |
-| `checkGeneratorOwnership` | POST (with `{generatorName}`) | `{"status":"is-not-owner"}` or `"is-owner"` |
+| `getCommunityData` | GET, no auth | `{status:"success", data:{lastPost:{secondsAgo, title}, posts:[{secondsAgo, title, ...}]}}` — OPEN, browsable community forum feed [VERIFIED R25] |
+| `checkGeneratorOwnership` | POST (with `{generatorName}`) | `{"status":"is-not-owner"}` or `"is-owner"` — open per-session ownership check [VERIFIED R25] |
 | `clearCacheIfGeneratorOrImportsHaveBeenUpdated` | GET (with params) | `true` — the CDN edge-cache invalidation mechanism |
-| `getGeneratorHtml` | GET (needs params) | `{"success":false,"status":"invalid-request"}` without valid params |
+| `getGeneratorHtml?generatorName=X` | GET, no auth | Raw HTML-panel **source** server-side (DSL templates like `[pride()]` intact); distinct from `downloadGenerator` (which returns lists/DSL) [VERIFIED R25] |
+| `cv?generatorName=X&isFromEmbed=0` | GET, no auth | 200 empty body — the **view-counter WRITE**; an anonymous GET increments the generator's view count (a view-inflation vector) [VERIFIED R25] |
+| `securityData` | GET, no auth | `{spamHostnames:["galaxy-link.space","shrinkme.io","linkvertise.com","adf.ly","exe.io", ...]}` — Perchance's PUBLIC spam/URL-shortener denylist; reusable for moderation [VERIFIED R25] |
+| `getAccessCodeForAdPoweredStuff` | GET, no auth | **FREELY mints a valid 64-hex `adAccessCode`** (e.g. `30a2d786…c9353`) with no ad watched and no auth — see note below [VERIFIED R25] |
+| `login` | POST | `{status:"captcha-needed"}` — account login is Turnstile-gated [VERIFIED R25] |
+| `aiHelper` | POST | `{status:"server-error"}` for ALL body shapes (`{prompt}`/`{message}`/`{question}`/`{text}`/`{instruction}`/`{messages:[]}`/`{type,prompt}`/`{action,description}`) incl. empty — it fails BEFORE reading the body, i.e. it is SESSION/AUTH-gated, not an open AI endpoint [VERIFIED R25] |
+
+**The ad-gate on image generation is SOFT [VERIFIED R25].** `getAccessCodeForAdPoweredStuff`
+freely mints a valid 64-hex `adAccessCode` with no ad watched and no auth, so the ad token is
+freely obtainable. The only **hard** gate on image generation is the Turnstile-minted
+`userKey` (cf. §4 image ad-gating and the image generate request shape).
+
+**There is NO open, un-keyed AI endpoint reachable from outside Perchance [VERIFIED R25].** Both
+`/api/generate` paths (text + image) gate on the Turnstile `userKey`, and `aiHelper` gates on
+session. This settles the common "the text-gen API is callable from outside, that's a bug"
+claim: the `userKey` **IS** the gate — it is simply minted per-browser via Turnstile, not a
+missing check.
+
+**Dead / legacy routes (404 "Cannot GET/POST") [VERIFIED R25]:** `getGeneratorDiffPatches`,
+`getPrivateNotes`, `getUserData`, `getGeneratorMetaData` (the real meta route is
+`getDynamicMetaData`). A `count?keys=…` read returns an empty body.
 
 `downloadGenerator` carries an explicit backwards-compatibility guarantee and is the safe
-endpoint to build on. The older `generateList.php` endpoint is legacy and unreliable —
-prefer `downloadGenerator` with client-side DSL evaluation, or `getGeneratorStats` /
-`getGeneratorList` for metadata.
+endpoint to build on. The older `generateList.php` endpoint is **legacy and dead** (404
+"Cannot GET" [VERIFIED R25]) — prefer `downloadGenerator` with client-side DSL evaluation, or
+`getGeneratorStats` / `getGeneratorList` for metadata.
 
 **Response schemas** (confirmed via probing):
 
@@ -1213,6 +1432,15 @@ Collab editing (all live, return JSON): `getCollabEditKey`
 (→ `{"status":"invalid"}`), `deleteCollabEditKey` (POST, → `{"status":"server-error"}`),
 `regenerateCollabEditKey` (POST, → `{"status":"server-error"}`).
 
+Re-confirmed R25: the session-based POSTs (`save`, `changeGeneratorName`, `deleteGenerator`,
+`duplicateGenerator`, `setPrivateNotes`, `verify`) all return `{"status":"server-error"}` for
+an unauthenticated/empty-body call — they fail *before* reading the body, so they cannot be
+exercised without a real session (same gating posture as `aiHelper`). `getGeneratorDiffPatches`
+/ `getPrivateNotes` / `getUserData` / `getGeneratorMetaData` return 404 "Cannot GET" as GET
+routes (the real meta route is `getDynamicMetaData`). There is **no `/api/archive*` route on
+`perchance.org`** — the AI-character `/api/archive/v1/<source>/image/character/<user>/<char>`
+URL is built from the *card's own origin* (the character app's domain), not Perchance [VERIFIED R25].
+
 **API error vocabulary** (complete set observed R22-R23):
 `server-error`, `session-token-error`, `invalid-credentials`, `invalid`,
 `captcha-needed`, `incorrect-code`, `invalid_data_type`, `is-not-owner`, `is-owner`.
@@ -1222,13 +1450,40 @@ returns the distinct `session-token-error` status (not generic `server-error`).
 `verify` accepts body and checks code without verifying user existence first.
 `/api/rateGeneratedText` is a quality-feedback endpoint (from broker source).
 
-Infrastructure: `clearCacheIfGeneratorOrImportsHaveBeenUpdated`,
+Infrastructure: `clearCacheIfGeneratorOrImportsHaveBeenUpdated` (GET, → `true`/`false`),
 `getAccessCodeForAdPoweredStuff` (GET, returns 64-hex ad token — no auth needed),
-`aiHelper` (POST-only, GET times out), `alc` (GET, returns `1` — meaning TBD),
-`iusb` (GET, returns `0` — meaning TBD).
+`aiHelper` (POST-only, GET times out), `alc` (GET, → `"1"`), `iusb` (GET, → `"0"`).
 
-Non-existent: `/api/generate` returns 404 on both GET and POST — it's referenced
-in source but doesn't exist as an endpoint.
+**Mystery / legacy endpoints resolved [VERIFIED R25]:**
+
+| Endpoint | Result |
+|----------|--------|
+| `/api/alc` | `"1"` |
+| `/api/iusb` | `"0"` |
+| `/api/generateList.php` | 404 "Cannot GET" — **legacy, dead** |
+| `/api/clearCacheIfGeneratorOrImportsHaveBeenUpdated` | `true` / `false` |
+| `text-generation.perchance.org/api/rateGeneratedText` | `{"status":"success"}` |
+| `/api/getCollabEditKey` | `{"status":"invalid-credentials"}` |
+| `/api/validateCollabEditKey` | `{"status":"invalid"}` |
+| `editor-copilot.perchance.org/api/findBugsInCode` (GET) | 500 |
+
+**Reverse-dependency lookups do not exist [VERIFIED R25].** There is **no** reverse-dependency
+API — `getDependents`, `getGeneratorsByDependency`, and `getGeneratorsThatImport` all 404. A
+"who imports X" index must be built by crawling. (`getGeneratorsAndDependencies` only walks
+*forward* through the import tree.)
+
+**`getDynamicMetaData` → `{"success":false}` for external callers** (gated/dead for
+non-page callers) [VERIFIED R25].
+
+**`/api/generate` (text AND image) is GATED, not open/abusable [VERIFIED R25].** A POST without
+a valid `userKey` returns `{"status":"invalid_key"}` regardless of method or other params — it
+cannot be called as an open public API.
+
+Note on `/api/generate` [VERIFIED R25]: on the **backend brokers**
+(`text-generation.perchance.org` and `image-generation.perchance.org`) it is a real but
+**gated** endpoint — a POST without a valid `userKey` returns `{"status":"invalid_key"}` (not
+404). It is not an open/abusable API. (On the main `perchance.org/api/` host it is not a
+generation endpoint.)
 
 POST-only endpoints (404 on GET): `login` (returns `{"status":"captcha-needed"}`),
 `verify`, `changeGeneratorName`, `changeGeneratorPrivacy`, `deleteGenerator`,
@@ -1256,8 +1511,20 @@ forum feed. Accepts query parameters that slightly vary the response.
 is validated first; every request without a valid key returns `{"status":"invalid_key"}`
 regardless of other parameters or HTTP method.
 
-**`image-generation.perchance.org/gallery`** is authentication-gated — returns
-`{"status":"invalid_parameter"}` for all query-param variants tested.
+**`image-generation.perchance.org/gallery` [VERIFIED R25].** With a valid `channel`,
+`/gallery?channel=<generatorName>` returns a per-generator **server-rendered HTML gallery
+page** (~2.5 MB, with image URLs embedded; `channel` = the generator name). `/gallery` alone,
+or with only `?subChannel`, returns `{"status":"invalid_parameter"}`.
+
+- **AI-generated images** are stored content-addressed at
+  `https://aigc.uploads.dev/image/<sha256>.jpeg` — that is what `aigc.uploads.dev` IS.
+- **No JSON image-list API exists** (`getGalleryImages`, `getImages`, etc. all 404). To browse
+  a gallery you must fetch the HTML gallery page and parse the
+  `aigc.uploads.dev/image/*.jpeg` URLs out of it.
+- **Built-in gallery vote system:**
+  `image-generation.perchance.org/api/voteOnGalleryImage?imageId=&channel=&subChannel=&direction=&auto=&userKey=`
+  (with `__wafDisallowTor=true` anti-Tor WAF), plus `/api/galleryImageViewCount` and
+  `/api/getPublicUserId?channel=`. The gallery uses `idb-keyval` client-side.
 
 **Upload `/api/upload`** validates the `expires` query parameter *before* the Turnstile
 check — `?expires=test` returns `invalid_expiry` while all other params return
@@ -1287,18 +1554,39 @@ many developers expect:
 
 | Capability | Available | Notes |
 |-----------|-----------|-------|
-| Popups (`window.open`) | No | Returns `null` |
+| Popups (`window.open`) | Sometimes | Sometimes returns a window now (not always blocked) [VERIFIED R25] |
 | Notifications | API present | Permission pre-denied |
 | Fullscreen | Yes | |
 | Cache Storage | Yes | `caches.open()` succeeds |
-| OPFS (`storage.getDirectory`) | Yes | |
+| OPFS (`storage.getDirectory`) | Yes | Main-thread read/write round-trip succeeds. `createSyncAccessHandle` is undefined on the main thread (Worker-only) but **WORKS inside a Worker** — verified a synchronous `write`→`flush`→`read`→`getSize` round-trip there. **SQLite-wasm OPFS VFS is VIABLE** — a full local SQLite database (`sqlite-wasm`/`wa-sqlite`) runs in the sandbox: persistent, synchronous, up to the 10 GB quota, no server [VERIFIED R25] |
+| WebGPU (`navigator.gpu`) | Present, but no adapter | `navigator.gpu` exists, but `await navigator.gpu.requestAdapter()` returns **null** — no GPU adapter is exposed to the isolated iframe. **WebGPU-based local model inference is NOT viable** in the sandbox (on this host) [VERIFIED R25] |
+| `OffscreenCanvas` | Yes | Present [VERIFIED R25] |
+| WebGL2 + float textures | Yes | WebGL2 context obtainable; `EXT_color_buffer_float` extension available — enables a WebGL float-texture inference fallback [VERIFIED R25] |
+| `WebAssembly` | Yes | `WebAssembly.validate` ok; `instantiateStreaming` present; threads via SAB confirmed (see below) [VERIFIED R25] |
 | Geolocation | Present | State `prompt` — the user can be asked |
 | Camera / microphone | Present | State `prompt` — the user can be asked |
 | Clipboard read | Present | Denied by default |
 | `localStorage` / `indexedDB` | Yes | Functional |
 | `document.cookie` | Yes | Readable and writable |
-| `SharedArrayBuffer` | No | `crossOriginIsolated` is `false` |
+| `crossOriginIsolated` | Yes | `true` — COOP/COEP enabled [VERIFIED R25] |
+| `SharedArrayBuffer` | Yes | `typeof SharedArrayBuffer === "function"` — available [VERIFIED R25] |
+| WASM threads / multithreading | Yes | Verified end-to-end: blob Worker + SAB + Atomics works in both main frame and workers [VERIFIED R25] |
 | Child iframes with scripts | Yes | Inherit `allow-scripts` |
+
+**True multithreading now works in the sandbox [VERIFIED R25].** Because the platform now
+enables cross-origin isolation (COOP/COEP), `crossOriginIsolated === true` and
+`SharedArrayBuffer` is a real constructor. A blob `Worker` + `SharedArrayBuffer` + `Atomics`
+was verified end-to-end: the worker wrote `42` to shared memory via `Atomics.store` and the
+main thread read it back via `Atomics.load`. Both the main frame AND spawned workers are
+`crossOriginIsolated` with SAB. This means threaded WASM now runs in the sandbox —
+transformers.js threads, ffmpeg.wasm, and sqlite-wasm threads are all viable. This is a
+change from the prior "false / unavailable" state.
+
+**Local model inference viability [VERIFIED R25].** In-sandbox local model inference is
+viable on the **CPU path** (WASM + SAB threads + a WebGL2 `EXT_color_buffer_float` fallback)
+but **NOT via WebGPU** — `navigator.gpu.requestAdapter()` returns `null`, so no GPU adapter
+is exposed to the isolated iframe (on the measured host). The 10 GB persistent quota leaves
+room for a quantized model on disk.
 
 ---
 
@@ -1809,7 +2097,7 @@ third-party generators should be aware that generators are able to make such pro
 | Empty or inline-only image prompt hangs forever | Always pass real description text |
 | Uploaded SVG is a stored-XSS vector | Never serve raw SVG CDN URLs; embed via `<img>` |
 | `temperature` / `model` / `topP` have no effect | They are inert; not passed to the plugin |
-| `idealMaxContextTokens` treated as a hard limit | It is advisory; use it for budget planning |
+| `idealMaxContextTokens` (6000) treated as the real cap | It is conservative; real server cap is ~6976 usable input tokens (8000−1024) [R25] |
 | HTML panel stale after saving | CDN edge cache; wait for the purge or hard-refresh |
 | `countTokens` treated as exact | It is an approximate estimate |
 | 21+ `stopSequences` causes an error | The maximum is 20 |
@@ -1828,7 +2116,8 @@ Sync handle       : Promise + stop, inputs, liveResponseText, textStream,
                     onFinishPromise, id, loadingIndicatorHtml, submitUserRating
 stopReason        : "natural" | "artificial" | "error" | "user"
 onChunk payload   : { textChunk, isFromStartWith, fullTextSoFar }
-Context           : idealMaxContextTokens = 6000 (advisory; real window is larger)
+Context           : idealMaxContextTokens = 6000 (conservative); real server cap
+                    maxContextTokens = 8000 - 1024 = 6976 usable input tokens [R25]
 stopSequences max : 20
 Output ceiling    : ~900 tokens — chain calls for more
 Concurrency       : 1 per broker; text + image + upload run in parallel
@@ -1845,7 +2134,10 @@ Defaults      : 512x512 bare; 768x768 in the AI chat
 Orientation   : portrait/selfie → 512x768; landscape/wide-angle → 768x512
 Inline params : (resolution:::) (negativePrompt:::) (seed:::) (guidanceScale:::)
                 (size:::) (width:::) (height:::) (style:::) (saveTitle:::) (saveDescription:::)
-negativePrompt: honored;  seed: not reliably honored
+negativePrompt: sent to server, NOT acted on by model [R25]
+seed          : sent to server, NOT acted on by model (server reports seedUsed) [R25]
+referenceImage: plumbed as {url, blur} but dead at the model (img2img ignored) [R25]
+Ad-gating     : IMAGE gen is ad-gated (adAccessCode); TEXT gen is NOT [R25]
 removeBackground: client-side (RMBG-1.4 via transformers.js); PNG output
 Generation    : ~13–14 s
 Empty prompt  : hangs forever — always pass real description text
@@ -1934,17 +2226,25 @@ Handshake (from source — the `$output` creates an iframe to
 
 ```
 1. iframe loads  →  embed sends {type:"loaded"}
-2. parent sends  →  {type:"init", universe, origin, webtransportOrigin, ...}
+2. parent sends  →  {type:"init", universe, origin, webtransportOrigin, generatorName, ...}
 3. embed sends   →  {type:"ready"}
 4. parent sends  →  {type:"connect", world, requestId}
-5. embed sends   →  {type:"connect_ready", wtUrl, wsUrl, token}
+5. embed sends   →  {type:"connect_ready", wtUrl, wsUrl, token, expiry,
+                      webtransportCertHashes}   (or {type:"connect_error"})
 6. client opens WebTransport to wtUrl (or WebSocket to wsUrl as fallback)
+   + later: {type:"evict"}, {type:"token_refresh"}, {type:"meta"}, {type:"disconnect"}
 ```
 
-WebTransport endpoint: `wt0.server-plugin.perchance.org`. WebSocket fallback is
-triggered by `#forceUseWS=1` in the URL hash. Binary framing over WebSocket uses
-frame types: DATAGRAM(1), STREAM_OPEN_BI(2), STREAM_OPEN_UNI(3), STREAM_DATA(4),
-STREAM_FIN(5), CONTROL(6), CLOSE(7).
+`universe = window.generatorPublicId`. World name regex:
+`/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/`. WebTransport endpoint:
+`wt0.server-plugin.perchance.org`; WebSocket fallback is triggered by `#forceUseWS=1` in the
+URL hash.
+
+**WS binary framing [VERIFIED R25].** Frame types: `DATAGRAM=1`, `STREAM_OPEN_BI=2`,
+`STREAM_OPEN_UNI=3`, `STREAM_DATA=4`, `STREAM_FIN=5`, `CONTROL=6`, `CLOSE=7`. Stream ids are
+u32 big-endian. A `CONTROL` frame is JSON `{type:"token_refresh", token, expiry}`. A `CLOSE`
+frame is a u32 code followed by a UTF-8 reason. Tokens expire and are refreshed over a
+dedicated control stream.
 
 **`commentsPlugin(opts)`** — Channel-based comment system with moderation.
 
@@ -1981,6 +2281,74 @@ Without the rendered widget, `setNicknameForNextComment`, `setAvatarUrlForNextCo
 `submit`, and `inputText` all throw `"Cannot read properties of undefined (reading
 'postMessage')"`. The `channel` and `comments` properties work without the iframe.
 
+#### comments-plugin — Client API Reference [VERIFIED R25]
+
+The server code is private and coupled to the backend (fork-warned), so only the **client
+API** is documented here, sourced from the archive `ref/comments-plugin_2.txt` (NOT a live
+embed — the embed `comments-plugin.perchance.org/embed/` is not directly fetchable → 404).
+
+**Usage:**
+
+```
+commentsPlugin = {import:comments-plugin}
+[commentsPlugin(options)]                  // render the widget
+[com = commentsPlugin(options)]            // grab the programmatic handle
+```
+
+**Channels.** The `channel` option = a separate comment store; channel names are lowercase
+letters/numbers/hyphens only. `channelLabel` overrides the display text (any chars).
+Channel-name **suffixes**:
+
+| Suffix | Effect |
+|--------|--------|
+| `+u:alice\|bob` | username-permissioned — only those usernames may post |
+| `+ids:channel` | scope user-IDs to this channel rather than sharing across the page |
+| `chat+ids:channel,u:alice\|bob` | combinable — **ORDER-SENSITIVE**: reordering yields a *different* channel |
+
+**Identity — IDs are IP-derived [significant].** A user's ID is **derived from their IP
+address** (full ID format like `MW22-8e5123…`). Banning a user = banning that IP, so
+shared-IP users (e.g. everyone at one school) share an ID. Commenter IDs implicitly encode
+IP/region.
+
+**Rate limiting is CLIENT-configured** via
+`rateLimits = "1 per minute, 3 per 10 minutes"` (comma-separated rules; any limit hit → the
+comment is blocked/hidden). The server's own hard ceiling is not exposed.
+
+**Programmatic handle** (`com = commentsPlugin(opts)`):
+
+```js
+com.submit("text")
+com.inputText                       // get/set the input box text
+com.setNicknameForNextComment(name)
+com.setAvatarUrlForNextComment(url)
+com.banUser(id)
+com.unbanUser(id)
+```
+
+**Callbacks** (in `options`):
+
+```js
+onLoad(comments)        // initial array; items have .message
+onComment(comment)      // a new comment arrived
+onInputTextChange
+beforeSubmit(text)      // return null → cancel; return a string → replace; return nothing → proceed
+```
+
+**Moderation:**
+
+- `adminPasswordHash = sha256("perchance-comments-plugin|" + password)` — admin logs in via
+  Ctrl/Cmd+L.
+- `bannedUsers` — list of IP-derived IDs.
+- `bannedWords` — supports `/regex/` patterns; common slurs are banned by default; general
+  profanity is NOT banned by default.
+
+**Other options:** custom emojis (images MUST be hosted on perchance.org / upload →
+`user.uploads.dev`; trigger words = letters/numbers/underscores; `@import =
+{import:huge-emoji-list}` for ~80k emojis; only one `@import` allowed); `slashCommands`;
+visual style options (`containerStyle`, `messageBubbleStyle`, `loadFonts`,
+`forceColorScheme`); `hideComments`, `hideDates`, `newestCommentsAtTop`,
+`replacedDuringUpdate=true` (fresh box on randomize), `hideCommentsBeforeDate`.
+
 **`fullscreenBtn(element, options, callback)`** — Fullscreen toggle button (arity 3).
 
 **`dynamicImport(generatorName, opts)`** — Lazy-load another generator at runtime (arity 2).
@@ -1988,28 +2356,30 @@ Without the rendered widget, `setNicknameForNextComment`, `setAvatarUrlForNextCo
 ### Object Plugins
 
 **`postsPlugin`** — Post/content database with voting and feeds. Backed by
-`posts-plugin.perchance.org/embed`. **Currently WIP — the plugin source has two bugs**
-(listener on `iframe.contentWindow` instead of `window`; `delete...()` syntax error) that
-prevent broker responses from arriving. The intended API from source:
+`posts-plugin.perchance.org/embed` (live server currently **down — HTTP 522**). **The plugin
+source has two confirmed client bugs that make it non-functional [VERIFIED R25]:** (1) it
+listens on the **cross-origin** `iframe.contentWindow.addEventListener` (which never fires),
+and (2) it does `delete requestIdToResolver[requestId]()` — which deletes the *result of
+calling* the resolver, so responses never resolve. The intended API from source:
 
 ```js
 const posts = root.postsPlugin;
-// Basic CRUD:
-//   posts.add({content, id?, tags?})                 // auto-generated ID, default channel
-//   posts.<channel>.add({id, tags, title, content})  // add to named channel (e.g. posts.blog)
-//   posts.<channel>.get(id)                          // retrieve by ID
-//   posts.<channel>.vote(id, value)                  // vote: value between -1 and 1
-//   posts.<channel>.seen(id)                         // increment view count
-//   posts.<channel>.update(id, partialObj)            // partial update
-//   posts.<channel>.replace(id, fullObj)              // full replacement
-// Querying:
-//   posts.query({sort, tags, after, limit})           // sort: "new"/"best"/"trending"/"value"
-//   posts.stream({channel})                          // real-time feed
-//   posts.<channel>.feed({sort, period})              // rendered feed widget (for DSL)
+// Top-level (default channel ''):
+//   posts.add(post)            posts.addMany(posts)
+//   posts.get(id)              posts.getMany(ids)
+//   posts.query(opts)          posts.stream(opts)
+// Channel-scoped (posts.<channel>.*, e.g. posts.blog):
+//   .add(post)   .get(id)   .vote(id, -1..1)   .seen(id)
+//   .update(id, partialObj)   .replace(id, fullObj)
+//   .query({sort, tags, after, limit})   // sort: "new"/"best"/"trending"/"value"
+//   .feed({sort, period})                 // rendered feed widget (for DSL)
+//
+// Post shape: { id?, content, tags?, title?, _channel(default '') }
 ```
 
-The config system supports voting weights, score decay, per-key max votes,
-public/private values, and Ed25519 encrypted direct messages.
+The config system supports **weighted voting** (`increment = userTrustScore`), score
+**decay**, per-key `max` votes, `publicValues:false`, and **DirectMessages with Ed25519**
+(`readKeyMapper = Ed25519`).
 
 **`kvPlugin`** — Key-value storage. Empty object on `root.*`; the full API is on
 `kvPlugin.folder`:
@@ -2036,6 +2406,11 @@ const folder = root.kvPlugin.folder;
 Type preservation: `42` round-trips as `number`, `{x:1}` as `object`, `true` as
 `boolean`. Overwriting a key replaces the value. Operations are synchronous-fast
 (0-5ms) despite being async.
+
+**kv-plugin preserves types EXACTLY across a get/set round-trip [VERIFIED R25]** — verified
+for string, number, float, nested object, mixed array, boolean, and `null` (no
+JSON-flattening or coercion). Backend is IndexedDB `folder-db-kv-plugin`, per-generator
+partitioned, LOCAL to the browser (not shared across users).
 
 **Backend:** IndexedDB database `"folder-db-kv-plugin"` v1. The database name is
 derived from `this.$root.$moduleName` in the plugin source, so forked plugins get
@@ -2084,10 +2459,28 @@ Text-generation broker: `embedIsReady`, `verified`, `verifying`, `streamData`,
 `streamEnd`, `streamError`, `tokenizerPerformance`, `ttft_withRecentRequest`,
 `ttft_withoutRecentRequest`.
 
-Image-generation broker: `readyForData`, `finished`, `plsGibAccessCodeForAdPoweredStuff`
-(requests ad token from ads iframe), `imageSavedToSubChannel`,
-`updateContentGuardVisibility`, `ImageFeatureExtractor`. Image generation is
-**queue-based** (`joinQueue`, `updateQueuePos` in broker source).
+Image-generation broker [VERIFIED R25]: `imageSavedToSubChannel`, `readyForData`,
+`plsGibAccessCodeForAdPoweredStuff` (requests an `adAccessCode` ad token, minted via
+`ads.perchance.org`), `custom`, `ImageFeatureExtractor` (CLIP feature extraction),
+`finished`, `updateContentGuardVisibility`. Image generation is **queue-based** (`joinQueue`,
+`updateQueuePos` in broker source).
+
+The `finished` postMessage carries `{type, dataUrl, seedUsed, id}` — note `seedUsed`: the
+server reports back its OWN seed (further evidence the client `seed` is not honored).
+
+**KEY POINT: image generation is ad-gated; text generation is NOT [VERIFIED R25].** The image
+broker fires a `plsGibAccessCodeForAdPoweredStuff` postMessage to obtain an `adAccessCode`
+minted via `ads.perchance.org`, and the image request carries it. Text generation has no such
+ad gate.
+
+**Image generate request [VERIFIED R25]:**
+
+```
+POST image-generation.perchance.org/api/generate
+  ?prompt=&seed=&resolution=&guidanceScale=&negativePrompt=
+  &channel=${saveChannel}&subChannel=&userKey=
+  # plus an adAccessCode (ad-completion proof)
+```
 
 Upload broker: `uploadEmbedIsReady`, `anonUploadResponse`, `file`.
 Outgoing from plugin: `anonUploadRequest`, `init`.
@@ -2095,17 +2488,26 @@ Outgoing from plugin: `anonUploadRequest`, `init`.
 **Text-generation broker internals** (from 72,969-byte embed source) [R23]:
 
 - Streaming wire format: `postMessage({type:"streamData", requestId, value})` —
-  `value` is the token chunk. Stop: `{type:"stopStream", requestId}`.
+  `value` is `{text: <delta>}`, the new delta (NOT cumulative) [VERIFIED R25].
+  Stop: `{type:"stopStream", requestId}`. A `streamKeepAlive` mechanism is present.
 - LRU thread pool: `moveToLeastRecentlyUsedThread()` selects thread.
   User identity: `localStorage["userKey-{thread}"]`, sent as URL query param.
 - Prompt truncation: `middleOut` algorithm (`middleOutWithoutTokenizer()` for
   fast mode). Sets `postData.didMiddleOut = true` when active.
 - Hash function: `djb2Hash(str)` — `hash=5381; hash=((hash<<5)+hash)+charCode`.
-- **Tokenizer: DeepSeek-R1-0528** from HuggingFace (`deepseek-ai/DeepSeek-R1-0528`
-  `tokenizer.json` + `tokenizer_config.json`).
-- Quality feedback: `/api/rateGeneratedText` endpoint (new, not in original catalog).
-- Error tracking: Rollbar v2.26.0.
-- Token limits: `TokenCount`, `maxToken` references.
+- **Tokenizer: DeepSeek-R1-0528**, loaded **client-side** from HuggingFace
+  (`deepseek-ai/DeepSeek-R1-0528` `tokenizer.json` + `tokenizer_config.json`), with a
+  content-CDN mirror fallback at `user.uploads.dev/file/f27e15b2…json` and
+  `user.uploads.dev/file/db8eb69f…json`. Falls back to the char estimate (3.9 base / 3.4
+  French) if it fails to load (≤2 retries) or would take >4000 ms [VERIFIED R25].
+- `countTokens`: base64-embedded bigram approximation model (magic header `"DBG1"`),
+  ~80× faster / 200× smaller than the HF tokenizer [VERIFIED R25].
+- Quality feedback: `/api/rateGeneratedText` endpoint (→ `{"status":"success"}`).
+- Analytics: `POST /api/clientPerformanceAnalytics` every 2 min (1/20-sampled
+  `tokenizerPerformance` events) [VERIFIED R25].
+- Error tracking: Rollbar code present but **DISABLED / commented out** [VERIFIED R25].
+- Token limits: real server cap `maxContextTokens = 8000 - 1024 = 6976` usable input tokens;
+  `idealMaxContextTokens = 6000` returned to clients is conservative [VERIFIED R25].
 - Turnstile flow: `verifyUser` with `alreadyVerifying` guard.
 
 **Image-generation broker internals** (from 76,155-byte embed source) [R23]:
@@ -2118,6 +2520,25 @@ Outgoing from plugin: `anonUploadRequest`, `init`.
   RMBG-1.4 model (cached in Cache API `"transformers-cache"`).
 - Gallery: `saveImageToGallery()` — modal UI with subChannel selection.
 - Content moderation: `contentGuardMessageEl` CSS class.
+
+**Image API endpoints (9) [VERIFIED R25]** — mostly undocumented, on
+`image-generation.perchance.org/api/`:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `generate` | Generate an image (ad-gated; see request shape above) |
+| `getUserQueuePosition` | Current position in the generation queue |
+| `awaitExistingGenerationRequest` | Request **coalescing/dedup** of identical in-flight generations |
+| `downloadTemporaryImage` | Fetch a just-generated (not-yet-saved) image |
+| `saveImageToGallery` | Persist an image to the public gallery |
+| `flagImage` | Moderation report on an image |
+| `canExpireImageIds` | Whether given image IDs can be expired |
+| `checkUserVerificationStatus` | → `{"status":"not_verified"}` when unauthenticated |
+| `verifyUser` | Turnstile verification |
+
+**Content guard [VERIFIED R25]** is a **configurable NSFW filter** with an over-18 checkbox UI
+(`contentGuardOver18CheckboxEl`, `ContentGuardVisibility`) — it is **not a hard block**. The
+`updateContentGuardVisibility` postMessage toggles its display.
 
 **Runtime globals** set by the Perchance platform:
 
@@ -2694,8 +3115,16 @@ Used in the canonical `ai-chat` generator.
 repos) you can plug into `comments-plugin.bannedWords` or `text-to-image-plugin` gallery
 moderation.
 
-**`secret-plugin`** — gated content. Wrap a value so it's only shown after the user
-enters a passphrase (hashed client-side).
+**`secret-plugin`** — client-side **post-quantum public-key encryption** (CRYSTALS-Kyber /
+ML-KEM FIPS 203, via `crystals-kyber-js`), no backend [VERIFIED R25]. API:
+`secret.generateKeyPair()` → `{public, private}`; `secret.encrypt(text, publicKey)`;
+`secret.decrypt(encrypted, privateKey)`. Auto-compresses before encrypting; output is
+**non-deterministic** (random padding, so identical plaintexts yield different ciphertexts);
+versioned tokens `PUBLIC_n_…_PUBLIC_END` / `PRIVATE_…` / `ENCRYPTED_…`. Canonical use: an
+owner embeds their *public* key in a generator and the `comments-plugin` `beforeSubmit` hook
+encrypts each submission with it, so a public/anonymous comment channel delivers feedback only
+the owner's *private* key can decrypt (the `send-me-a-secret-message` pattern). Works for any
+file by first converting it to a data-URL.
 
 ### Selection Algorithms
 

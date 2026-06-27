@@ -1048,8 +1048,10 @@ counting (`deepseek-ai/DeepSeek-R1-0528/tokenizer.json`). Long prompts are trunc
 via the `middleOut` algorithm (`middleOutWithoutTokenizer()` for fast mode) before
 reaching the model. The broker sets `postData.didMiddleOut = true` when truncation occurs.
 Don't treat it as exact — leave headroom. `idealMaxContextTokens` (currently `6000`) is
-advisory; the real backend window is larger and inputs above it are processed without
-truncation. But going above it costs prefix-cache hits and latency.
+**conservative**, not the real cap: the broker's actual server limit is
+`maxContextTokens = 8000 - 1024 = 6976` usable input tokens (1024 reserved for output), and
+middle-out truncation triggers above ~6976 input tokens [VERIFIED R25]. Going near it also
+costs prefix-cache hits and latency.
 
 ---
 

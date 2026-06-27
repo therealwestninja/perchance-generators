@@ -187,10 +187,15 @@ Your HTML panel runs in a sandboxed iframe on a **32-hex subdomain**:
 https://0d48ac3156ed23b665db1584878ad92a.perchance.org/your-slug
 ```
 - Parent origin: `https://perchance.org`
-- `crossOriginIsolated`: **false** — SharedArrayBuffer unavailable
+- `crossOriginIsolated`: **true** — COOP/COEP enabled; `SharedArrayBuffer` available; WASM threads / blob-Worker+SAB+Atomics verified end-to-end [VERIFIED R25]
 - `window.top !== window` — you are nested inside a parent frame
 - Never put `location.origin` in share links; always hardcode `https://perchance.org`
-- Storage: **10 GB quota**, already persistent (no `navigator.storage.persist()` call needed)
+- Storage: **10 GB quota** (`estimate()` → quota 10240 MB, persisted true — exact), already persistent (no `navigator.storage.persist()` call needed) [VERIFIED R25]
+- **WebGPU NOT viable**: `navigator.gpu` exists but `requestAdapter()` returns `null` — no GPU adapter in the isolated iframe. Local model inference works on the CPU path only (WASM + SAB threads + WebGL2 `EXT_color_buffer_float` fallback) [VERIFIED R25]
+- OPFS read/write works; `createSyncAccessHandle` is Worker-only (undefined on main thread) but **works in a Worker** — so **SQLite-wasm OPFS VFS is viable**: a full local, persistent, synchronous SQLite DB runs in the sandbox (10 GB quota, no server). The sandbox is a genuine local-first app platform (WASM threads + relational DB + 10 GB durable storage) [VERIFIED R25]
+- **Raw egress WITHOUT superFetch:** cross-origin `fetch` is ALLOWED (CSP `connect-src` permits https — superFetch exists to bypass *CORS*, not an egress block); SSE/EventSource ALLOWED; WebSocket BLOCKED; WebRTC ALLOWED [VERIFIED R25]
+- **⚠️ WebRTC IP leak (privacy):** any generator can deanonymize the visitor's real public IP via `RTCPeerConnection` + STUN `srflx` candidates — no permissions-policy restricts it, bypassing superFetch's IP anonymization [VERIFIED R25]
+- **Sandbox → parent is closed for reads** (parent `location`/`document`/`origin` throw `SecurityError`); outbound control postMessages (`changePageTitle`, `changeHash`, `scriptTag`, etc.) send but are unacknowledged — fire-and-forget [VERIFIED R25]
 
 ### 1.2 Backend Topology — postMessage Broker Model [MEASURED]
 
@@ -353,7 +358,7 @@ if (window.innerWidth < 500) setTimeout(() => root.aiTextPlugin({ preload: true 
 // Token utilities:
 const { countTokens, idealMaxContextTokens } = root.aiTextPlugin({ getMetaObject: true });
 // countTokens(str) → number  — APPROXIMATE bigram estimate, no network call [SOURCE]
-// idealMaxContextTokens      → 6000  (ADVISORY — real window ≥ 10k tokens [MEASURED])
+// idealMaxContextTokens      → 6000  (CONSERVATIVE — real server cap maxContextTokens = 8000-1024 = 6976 usable input tokens [VERIFIED R25])
 ```
 
 ### 3.2 Return Value — Boxed String [MEASURED]
@@ -412,13 +417,16 @@ await handle.submitUserRating({ score: 0.8, reason: "optional" });
 
 ### 3.3 Context Window [MEASURED]
 
-`idealMaxContextTokens = 6000` is advisory, **not enforced**:
+`idealMaxContextTokens = 6000` returned to clients is **conservative**, not the real cap. The
+broker's actual server limit is `maxContextTokens = 8000 - 1024 = 6976` usable input tokens
+(1024 reserved for output); middle-out truncation triggers above ~6976 input tokens
+[VERIFIED R25]:
 
 | Input size | Truncation? |
 |------------|-------------|
-| ~5,049 tok | none — both canaries survived |
-| ~7,043 tok | none — both canaries survived |
-| ~10,042 tok | none — both canaries survived |
+| ~5,049 tok | none |
+| ~6,976 tok | at/below the real cap — none |
+| above ~6,976 tok | middle-out truncation triggers [VERIFIED R25] |
 
 Use `idealMaxContextTokens - 800` as your prompt budget to protect prefix-cache performance.
 The 800-token buffer prevents a summary or memory update from busting the prefix cache on every send.
@@ -451,11 +459,20 @@ byte-identical to what you passed.
 | Inter-chunk gap (streaming)       | avg 286 ms; first chunk has ~2,300 ms cold gap |
 | Output throughput                 | ~6 tokens/second |
 | Practical output ceiling          | ~900 tokens (~146 s) — `stopReason: "artificial"` |
-| Concurrency limit                 | **1 per broker** — strictly serial |
+| Concurrency                       | **Now PARALLEL** — 3 simultaneous calls overlapped (wall-clock ≈ max single call ~4286 ms, not the sum). Corrects the prior "1 per broker / strictly serial"; R25-observed, may warrant re-confirm [VERIFIED R25] |
+| Warmup                            | Cold first call ~4662 ms → warm ~940 ms; a repeated AND a different prompt both sped up → connection/model warmup, NOT prompt-prefix KV-cache [VERIFIED R25] |
 | text vs upload vs image queues    | **Independent** — parallel across services [MEASURED] |
-| Rate limiting (10 sequential)     | None observed; latency warms down over session |
+| Rate limiting (5 sequential)      | None observed (latencies 716–4793 ms, no throttling/errors) [VERIFIED R25] |
 
 For output over ~900 tokens: chain sequential calls, feeding previous output as context.
+
+**Injected system prompt & model behavior [VERIFIED R25].** The injected system prompt is
+**GLOBAL** (generator-agnostic) and is **exactly two bullets** of creative-writing house-style
+("make plot points authentic/believable"; "use an unusual opener / avoid cliché weather
+openers") — **no identity, safety, or formatting rules**. Knowledge cutoff **≈ end of 2024**
+(knows Trump won 2024; "I do not know" for 2025 tech). Output is **non-deterministic**
+(samples at temp > 0 even though the temperature *param* is ignored). Reasoning is **inline
+prose**, NOT DeepSeek-R1 `<think>` tags. No refusal on mild lawful content.
 
 ### 3.6 Streaming Details [MEASURED]
 
@@ -562,8 +579,8 @@ container.innerHTML = `${root.textToImagePlugin(options)}`;
 // Async/await mode — for custom code and standalone use:
 const result = root.textToImagePlugin({
   prompt:        "anime girl in a sunny field",
-  negativePrompt:"blurry, low quality",   // reaches broker payload, SILENTLY DROPPED by backend [VERIFIED R24]
-  seed:          42,                       // NOT honoured [MEASURED]
+  negativePrompt:"blurry, low quality",   // sent to server (URL-encoded in query), NOT acted on by model [VERIFIED R25]
+  seed:          42,                       // sent to server, NOT acted on by model (server reports its own seedUsed) [VERIFIED R25]
   resolution:    "768x768",               // "WxH" — always set this explicitly (see below)
   guidanceScale: 7,                        // CFG scale — default 7
   style:         "position:fixed; ...",   // CSS for the iframe element — NOT an image style
@@ -614,7 +631,7 @@ stripped from the prompt text before it reaches the model:
 |--------------|------|-------|
 | `(seed:::N)` | number | -1 = random |
 | `(resolution:::WxH)` | string | one of the four valid sizes |
-| `(negativePrompt:::text)` | string | parses correctly (bracket-depth parser, missing `)` → rest of string) and reaches broker payload, but **silently dropped by backend** [VERIFIED R24] |
+| `(negativePrompt:::text)` | string | parses correctly (bracket-depth parser, missing `)` → rest of string), URL-encoded into the image `/api/generate` query and reaches the server, but **not acted on by the model** [VERIFIED R25] |
 | `(guidanceScale:::N)` | number | 1–30, default 7 |
 | `(size:::N)` | number | square size |
 | `(width:::N)` / `(height:::N)` | number | echoes as a `"512px"` CSS string in `inputs` |
@@ -645,9 +662,20 @@ The plugin validates resolutions client-side. Only the four 512/768 combinations
 | `guidanceScale` default | 7 — echoed in `inputs`, reaches backend [VERIFIED] |
 | Generation time | ~13–14 s [MEASURED] |
 | Queue | Independent from text — parallel with `aiTextPlugin` [MEASURED] |
-| `negativePrompt` | Reaches broker payload as a real string but is **silently dropped by the SD backend** before reaching the model. Confirmed by inspecting iframe `data-src` URL hashes [VERIFIED R24]. Likely deliberate content-moderation hardening. |
-| `seed` | Echoed in inputs but **not honoured** — different output regardless [MEASURED] |
+| `negativePrompt` | Reaches the broker payload AND is URL-encoded into the image `/api/generate` query — **sent to the server but not acted on by the model** [VERIFIED R25] (earlier rounds said "dropped"; the correction is it reaches the server and is ignored at the model). |
+| `seed` | Sent to the server in the request but **not acted on by the model**; the server reports its own `seedUsed` in the `finished` message [VERIFIED R25] |
+| `referenceImage` | Plumbed through `$output` to the broker as `{url, blur}` (blur = img2img strength), but **the SD backend ignores it** — real-but-dead img2img [VERIFIED R25] |
 | `style` | CSS string for iframe element — not an image style preset [SOURCE] |
+| Determinism | **DETERMINISTIC** for identical inputs (Pearson 1.0 on a structural signature) [VERIFIED R25] |
+| `guidanceScale` effect | **Minimal / near-ignored** (Pearson 0.949 between scale 1 and 15) [VERIFIED R25] |
+| NSFW content-guard | **Not a blanket block** — did not fire on a mild non-explicit prompt [VERIFIED R25] |
+
+**Full broker payload keys & defaults [VERIFIED R25].** Payload keys: `saveChannel`
+(= generator name), `saveTitle`, `saveDescription`, `prompt`, `seed`, `resolution`,
+`guidanceScale`, `defaultGuidanceScale`, `negativePrompt`, `requestId` (a `Math.random()`
+float string), `iframeId`, `referenceImage`. **Prompt is passed RAW** (no client-side
+quality-tag injection); `negativePrompt` defaults to `""` (no default negative prompt);
+`seed` defaults to `-1` (random); `guidanceScale` defaults to `7` (`defaultGuidanceScale: 7`).
 
 **A1111 prompt syntax compatibility [VERIFIED R24 — empirical side-by-side comparison]:**
 
@@ -666,8 +694,8 @@ syntax. So square-bracket A1111 features get intercepted before reaching the mod
 | `[A\|B]` | alternating tokens per step | **intercepted as Perchance random-pick** — picks one at evaluation | ❌ |
 | `word AND word` | compositional diffusion | backend doesn't implement | ❌ |
 | `BREAK` | attention break | backend doesn't implement | ❌ |
-| `negativePrompt` (param) | suppress concepts | reaches broker, **silently ignored by backend** | ⚠️ |
-| `(negativePrompt:::...)` (inline) | suppress concepts | reaches broker as proper string, **silently ignored** | ⚠️ |
+| `negativePrompt` (param) | suppress concepts | reaches the **server** (URL-encoded), **ignored at the model** [VERIFIED R25] | ⚠️ |
+| `(negativePrompt:::...)` (inline) | suppress concepts | reaches the **server**, **ignored at the model** [VERIFIED R25] | ⚠️ |
 | `(seed:::N)` inline | n/a | parsed plugin-side, applied | ✅ |
 | `(guidanceScale:::N)` inline | n/a | parsed plugin-side, applied | ✅ |
 | `(resolution:::WxH)` inline | n/a | parsed plugin-side, applied | ✅ |
@@ -731,8 +759,10 @@ if (hashMatch) {
 }
 ```
 
-This is how we proved `negativePrompt` reaches the broker as a proper string but is then
-silently dropped by the SD backend itself, rather than being lost in the plugin layer.
+This is how we proved `negativePrompt` reaches the broker as a proper string, is then
+URL-encoded into the image `/api/generate` query and **sent to the server** — it is not lost
+in the plugin layer. It is simply **not acted on by the model** [VERIFIED R25]. Same for
+`seed` and `referenceImage`.
 
 ---
 
@@ -844,6 +874,13 @@ when loaded via `<img>`.
 A server-side Cloudflare proxy that bypasses CORS restrictions in the sandbox.
 Requests egress from Cloudflare infrastructure (`162.158.x.x`), not from the user's browser.
 
+> **Why it exists [VERIFIED R25]:** raw cross-origin `fetch` is NOT blocked by the sandbox
+> (CSP `connect-src` permits https egress; an in-sandbox `fetch('https://perchance.org/api/securityData')`
+> returns 200/ok). `superFetch` exists to bypass **CORS** — i.e. to read cross-origin response
+> bodies the browser otherwise hides — and to anonymize the visitor's IP server-side. Note:
+> WebRTC can still leak the visitor's real public IP directly (see §1.1), bypassing that
+> anonymization.
+
 ```js
 const response = await root.superFetch(url, init);
 // Returns a standard Response-like object
@@ -885,6 +922,13 @@ fetch first, then fall back to the proxy.
 The proxy attempts the request but Cloudflare returns HTTP 530 (DNS/routing fail) which the
 plugin converts to `Failed to fetch`. No SSRF vulnerability via `superFetch`.
 
+**Proxy characterization [VERIFIED R25]:** `superFetch` is a transparent full HTTP proxy —
+passes the origin's REAL status code (verified `418`), follows redirects server-side (a `302`
+returned the final 200 + body), and forwards arbitrary methods + bodies (`PUT`/`DELETE`). It
+egresses via Cloudflare Workers (origin sees `Cdn-Loop: cloudflare`). SSRF-hardened:
+`169.254.169.254`, `127.0.0.1`, and `127.0.0.1:8080` all fail unroutable, and `file://` URLs
+are rejected (`"Must provide full URL, starting with https:// or http://"`).
+
 ```js
 // Custom headers are stripped — use URL params for auth:
 // ✗  superFetch(url, { headers: { Authorization: 'Bearer token' } })  — header never arrives
@@ -923,9 +967,18 @@ perchance.org** — a self-hosted or JSDOM copy can't show the ads and the plugi
 (the official "DIY API" pattern; see `platform.md` §8).
 
 **Platform-internal endpoints [OBSERVED R9]** — called by the generator page itself, not a
-stable API: `getCommunityData`, `checkGeneratorOwnership` (POST), and
+stable API: `getCommunityData` (open forum feed), `checkGeneratorOwnership` (POST),
+`getGeneratorHtml` (raw HTML-panel source, no auth), `securityData` (public spam-hostname
+denylist), `cv?generatorName=…` (view-counter WRITE — anonymous GET inflates views), and
 `clearCacheIfGeneratorOrImportsHaveBeenUpdated` (the CDN edge-cache invalidation mechanism —
 governs stale-build behavior). Don't depend on these.
+
+**No open AI endpoint exists [VERIFIED R25].** Both `/api/generate` paths (text + image) gate
+on the Turnstile-minted `userKey`, and `aiHelper` gates on session (`server-error` before it
+even reads the body). The `userKey` IS the gate — it's just minted per-browser, not missing.
+The image ad-gate is SOFT: `getAccessCodeForAdPoweredStuff` freely mints a valid 64-hex
+`adAccessCode` with no ad and no auth, so `userKey` (Turnstile) is the only hard gate on image
+gen.
 
 ---
 
@@ -1262,7 +1315,7 @@ async function evaluatePerchanceTextInSandbox(text, opts = {}) {
 
 ```js
 const { countTokens, idealMaxContextTokens } = root.aiTextPlugin({ getMetaObject: true });
-// idealMaxContextTokens = 6000 (advisory; real window ≥ 10k — use as budget ceiling anyway)
+// idealMaxContextTokens = 6000 (conservative; real server cap ~6976 usable input tokens [R25])
 const budget = idealMaxContextTokens - 800;  // 800-token buffer reduces prefix-cache misses
 
 if (countTokens(roleInstructionText) > budget * 0.3) {
