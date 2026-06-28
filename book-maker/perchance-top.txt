@@ -1,25 +1,26 @@
 $meta
-  title = Book-maker
-  description = A brain-steered storybook builder. Pick a genre, bring your cast, choose a narrator, and write a book chapter by chapter - streaming, with continue-from-cursor and a saved library. Characters import from AI-Character-Chat. Free model, runs in your browser.
+  title = Book-maker - write a whole book, page by page
+  description = A storybook builder that actually plans ahead. Pick a genre, theme and tone, bring your own cast (or import AI-Character-Chat characters), set each one's role and fate, then write a book one page at a time - streaming, fully editable, continue from the cursor. Give it an ending and it builds toward it, planting and paying off clues, so even a mystery holds together. It remembers your people, places and lore as the story grows, and can look up real facts - places, words, history, the night sky, mythology - to keep the world believable. Set chapter markers and footnotes, save to a library, export to txt / md / json, and attach the story's memories to pick it up again later. Free, runs in your browser, and your data stays on your device.
+  tags = story, book, novel, writer, writing, fiction, ai story, story generator, book maker, mystery, fantasy, sci-fi, romance, horror, roleplay, character, interactive fiction, free
 
 // ---- imports (top editor only; keep this file ASCII - Perchance audits the DSL pane) ----
 aiTextPlugin = {import:ai-text-plugin}
-// kv-plugin: the saved-book library (My Books). Off-platform we fall back to localStorage.
+// kv-plugin: the saved-book library (My Books). Off-platform it falls back to localStorage.
 kv = {import:kv-plugin}
-// super-fetch-plugin: the brain's web lookups (🔎 Research) go through this CORS proxy.
+// super-fetch-plugin: powers the Almanac's real-world lookups (Wikipedia, dictionary,
+// word-tools, country, on-this-day, quotes, translate) through a CORS proxy.
 superFetch = {import:super-fetch-plugin}
-// comments-plugin: reader comments, toggled by the pinned button top-right of the frame.
+// comments-plugin: reader comments, toggled by the pinned button at the top-right of the frame.
 commentsPlugin = {import:comments-plugin}
-// HNE gives us pickFromBank: anti-repetition motif rotation with cross-session memory.
+// advanced-hypnosis-narration-engine: pickFromBank - anti-repetition motif rotation with memory.
 hne = {import:advanced-hypnosis-narration-engine}
 // optional, for cover / scene art later:
 // textToImagePlugin = {import:text-to-image-plugin}
 // optional, for character-file upload + share links:
 // uploadPlugin = {import:upload-plugin}
 
-// The HTML pane holds the whole app (book-maker.html body + book-maker.js). It may use
-// non-ASCII freely (it's an iframe), unlike this top editor. The Chloe brain libs
-// (brain.min.js / nation.js / intent-directive.js / rook-core.js) are OPTIONAL: when
-// absent, Book-maker falls back to its built-in beat template (still fully functional).
-// To enable brain-steered beats on Perchance, inline those four libs as <script> blocks
-// in the HTML pane (same pattern as the rook-ai bridge build).
+// The HTML pane is the whole app - self-contained: the editor, the story engine, and the
+// offline fallback narrator are all bundled in there (a base64 payload that a small loader
+// decodes and runs), so nothing else needs hosting. The HTML pane may use non-ASCII freely
+// (it is an iframe); only this top editor must stay ASCII. To rebuild the pane after editing
+// the source, run book-maker/build-pane.sh.
