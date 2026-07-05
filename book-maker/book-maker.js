@@ -414,6 +414,7 @@
     weights: {},             // per-faculty vote-weight multipliers (1 = default)
     noise: 0,                // spontaneity 0..40 (council deliberation noise)
     lore: { people: [], places: [], world: [], threads: [] },  // structured world-memory the brain builds
+    loreModel: [],           // 40-char keys of lore the MODEL distilled (vs author-written) — preserves recall provenance across rebuilds
     grounds: [],             // real-world facts the brain looked up (Almanac) to ground the fiction
     compass: { place: '', heading: '' },   // where the action is + which way is "forward" (North stays North)
     calendar: { label: '', day: 0 },       // in-story date/time the brain advances (consistency, not real time)
@@ -428,28 +429,45 @@
   // THE BRAIN: the deterministic Council (faculties: heart/reason/play/voice/...) steers each chapter.
   // council.decide(beat) -> {intent, directive, vibe}; council.feedback('up'|'down', toward) learns;
   // council.status() -> {vibe, avgMood, standings} (introspection); setWeights/noise/frame tune it.
-  var CORE_FACULTIES = (window.RookBrain && window.RookBrain.CORE) || ['heart', 'reason', 'memory', 'instinct', 'voice', 'conscience', 'play'];
-  // narrative stances: a frame + a per-faculty weight profile, mapped from Rook's STANCES to story moods.
+  // THE BRAIN: the LATEST digital brain (D:\Claude\brain) via the story-brain adapter. Its four
+  // neuromodulator SETPOINTS are the tunable "faculties" (0..1): dopamine=Drive, norepinephrine=Tension,
+  // serotonin=Warmth, acetylcholine=Focus. A stance is a narrator PERSONA the brain turns into chemistry;
+  // the sliders + up/down votes fine-tune from there. council.decide(beat)->{intent,directive,vibe};
+  // feedback('up'|'down') learns (reward economy + aversive learning); status() introspects; imagine()
+  // is forward simulation (P7). (Var kept named `council` for minimal churn from the old Council API.)
+  var CORE_FACULTIES = (window.RookBrain && window.RookBrain.CORE) || ['dopamine', 'norepinephrine', 'serotonin', 'acetylcholine'];
+  var CHEM_META = {
+    dopamine:       { label: 'Drive',   def: 0.2 },
+    norepinephrine: { label: 'Tension', def: 0.3 },
+    serotonin:      { label: 'Warmth',  def: 0.5 },
+    acetylcholine:  { label: 'Focus',   def: 0.3 }
+  };
+  // narrative stances: each is a NARRATOR PERSONA (a description describePersona turns into setpoints).
   var STANCES = {
-    balanced:   { label: '📖 Balanced', frame: 'storytelling', w: {}, blurb: 'Even-handed narration.' },
-    tender:     { label: '💗 Tender', frame: 'storytelling', w: { heart: 1.6, play: 1.2 }, blurb: 'Warm, intimate, close.' },
-    dramatic:   { label: '⚔ Dramatic', frame: { stature: 'commands' }, w: { voice: 1.4, instinct: 1.4 }, blurb: 'High stakes, momentum.' },
-    ominous:    { label: '🕯 Ominous', frame: { alignment: 'adversary' }, w: { instinct: 1.5, conscience: 0.5, heart: 0.7 }, blurb: 'Dread, menace, unease.' },
-    playful:    { label: '🎭 Playful', frame: 'storytelling', w: { play: 1.6, voice: 1.2 }, blurb: 'Wit, mischief, levity.' },
-    reflective: { label: '🌙 Reflective', frame: 'storytelling', w: { reason: 1.4, memory: 1.4, conscience: 1.2 }, blurb: 'Inward, contemplative.' }
+    balanced:   { label: '📖 Balanced',   desc: 'an even-handed, grounded narrator', blurb: 'Even-handed narration.' },
+    tender:     { label: '💗 Tender',     desc: 'a tender, warm, gentle, caring narrator', blurb: 'Warm, intimate, close.' },
+    dramatic:   { label: '⚔ Dramatic',   desc: 'a bold, driven, energetic, high-stakes narrator', blurb: 'High stakes, momentum.' },
+    ominous:    { label: '🕯 Ominous',    desc: 'a tense, wary, cold, ominous narrator', blurb: 'Dread, menace, unease.' },
+    playful:    { label: '🎭 Playful',    desc: 'a playful, lively, curious, spirited narrator', blurb: 'Wit, mischief, levity.' },
+    reflective: { label: '🌙 Reflective', desc: 'a calm, focused, thoughtful, measured narrator', blurb: 'Inward, contemplative.' }
   };
   var council = null;
   function rebuildCouncil() {
-    if (!(window.RookBrain && window.RookBrain.Council)) { council = null; return; }
+    if (!(window.RookBrain && window.RookBrain.makeStoryBrain)) { council = null; return; }
     try {
       var st = STANCES[S.stance] || STANCES.balanced;
-      council = new window.RookBrain.Council({ frame: st.frame || 'storytelling', noise: (S.noise || 0) / 100, weights: S.weights || {}, user: { name: 'Author', description: 'writing a book chapter by chapter' } });
+      council = window.RookBrain.makeStoryBrain({ description: st.desc, overrides: { setpoints: S.weights || {} }, noise: (S.noise || 0) / 100, now: function () { return Date.now(); } });
+      // Rebuild the brain's durable lore index from the book's bible (the store is a cheap, rebuildable
+      // semantic index; the durable record stays S.lore in the book snapshot). Fire-and-forget.
+      if (council && council.indexLore) { try { loreInit(); council.indexLore(S.lore, { modelKeys: S.loreModel }); } catch (e) {} }
     } catch (e) { council = null; }
   }
   rebuildCouncil();
   function hasBrain() { return !!council; }
-  function applyStance(id) { var st = STANCES[id]; if (!st) return; S.stance = id; S.weights = {}; for (var k in (st.w || {})) S.weights[k] = st.w[k]; rebuildCouncil(); autoSave(); render(); refreshBrainReadout(); }
-  function setFacultyWeight(id, mult) { S.weights = S.weights || {}; S.weights[id] = mult; S.stance = 'custom'; rebuildCouncil(); autoSave(); refreshBrainReadout(); }
+  // a stance resets the per-chem overrides (the persona sets them); the sliders then tweak from there.
+  function applyStance(id) { var st = STANCES[id]; if (!st) return; S.stance = id; S.weights = {}; rebuildCouncil(); autoSave(); render(); refreshBrainReadout(); }
+  // a slider sets one neuromodulator SETPOINT directly (0..1), marking the stance 'custom'.
+  function setFacultyWeight(id, value) { S.weights = S.weights || {}; S.weights[id] = value; S.stance = 'custom'; rebuildCouncil(); autoSave(); refreshBrainReadout(); }
   function setNoise(v) { S.noise = v; rebuildCouncil(); autoSave(); refreshBrainReadout(); }
   // run one deliberation on the current beat so the live readout reflects the new wiring immediately
   function refreshBrainReadout() {
@@ -523,12 +541,25 @@
   // (open questions & clues). Recent pages ride the treadmill verbatim; everything older is remembered
   // here. THREADS are the unresolved tensions a mystery must pay off — always surfaced toward the end.
   var LORE_CAP = { people: 24, places: 16, world: 24, threads: 16 };
-  function loreInit() { if (!S.lore || !S.lore.threads) S.lore = { people: [], places: [], world: [], threads: [] }; }
+  function loreInit() { if (!S.lore || !S.lore.threads) S.lore = { people: [], places: [], world: [], threads: [] }; if (!Array.isArray(S.loreModel)) S.loreModel = []; }
+  function loreKey(f) { return String(f).toLowerCase().slice(0, 40); }
   function loreCount() { loreInit(); return S.lore.people.length + S.lore.places.length + S.lore.world.length + S.lore.threads.length; }
-  function mergeLore(cat, facts) {
+  var LORE_TAG = { people: 'PERSON', places: 'PLACE', world: 'WORLD', threads: 'THREAD' };
+  // source: 'user' (author wrote/imported it) outranks 'model' (distilled from a page) at recall (M1).
+  function mergeLore(cat, facts, source) {
     loreInit(); if (!S.lore[cat]) cat = 'world';
     var arr = S.lore[cat], have = {}; arr.forEach(function (f) { have[f.toLowerCase().slice(0, 40)] = 1; });
-    (facts || []).forEach(function (f) { f = String(f).trim(); var k = f.toLowerCase().slice(0, 40); if (f.length > 6 && !have[k]) { have[k] = 1; arr.push(f); } });
+    (facts || []).forEach(function (f) {
+      f = String(f).trim(); var k = f.toLowerCase().slice(0, 40);
+      if (f.length > 6 && !have[k]) {
+        have[k] = 1; arr.push(f);
+        // Track model provenance so it survives a rebuild/reload (indexLore restores it from S.loreModel).
+        if ((source || 'user') === 'model' && S.loreModel.indexOf(k) < 0) S.loreModel.push(k);
+        // Mirror into the brain's durable lore index (semantic recall + MMR + provenance). Threads are
+        // NOT indexed -- they're surfaced live from S.lore so they don't eat the recall budget.
+        if (cat !== 'threads' && council && council.addLore) { try { council.addLore(f, { category: LORE_TAG[cat] || 'WORLD', source: source || 'user' }); } catch (e) {} }
+      }
+    });
     if (arr.length > (LORE_CAP[cat] || 20)) S.lore[cat] = arr.slice(-LORE_CAP[cat]);
   }
   function resolveThreads(texts) {   // drop threads the model says a page paid off (the clue is answered)
@@ -572,12 +603,12 @@
           var mt = l.match(/^\s*TIME\s*[:\-]\s*(.+)$/i); if (mt) { var tp = mt[1].split('|'); if (tp.length >= 2) { var lbl = (tp[0] || '').trim(), dlt = parseInt(String(tp[1] || '').replace(/[^\d-]/g, ''), 10) || 0; S.calendar = { label: lbl || S.calendar.label, day: (S.calendar.day || 0) + Math.max(0, dlt) }; } return; }   // only mutate on the proper "label | +Ndays" form
           var m = l.match(/^\s*(PERSON|PLACE|WORLD|THREAD|RESOLVED)\s*[:\-]\s*(.+)$/i);
           if (!m) return; var cat = m[1].toUpperCase(), fact = m[2].trim();
-          if (cat === 'RESOLVED') resolved.push(fact); else mergeLore(CAT[cat], [fact]);
+          if (cat === 'RESOLVED') resolved.push(fact); else mergeLore(CAT[cat], [fact], 'model');
         });
         if (resolved.length) resolveThreads(resolved);
         afterLearn();
-      }).catch(function () { mergeLore('world', extractFactsRegex(body, S.cast.map(function (c) { return c.name; }))); afterLearn(); });
-    } else { mergeLore('world', extractFactsRegex(body, S.cast.map(function (c) { return c.name; }))); afterLearn(); }
+      }).catch(function () { mergeLore('world', extractFactsRegex(body, S.cast.map(function (c) { return c.name; })), 'model'); afterLearn(); });
+    } else { mergeLore('world', extractFactsRegex(body, S.cast.map(function (c) { return c.name; })), 'model'); afterLearn(); }
   }
   function relevantLore(query) {
     loreInit(); if (!loreCount()) return '';
@@ -733,6 +764,10 @@
       res.appendChild(el('div', { class: 'foresee-verdict ' + (f.score > 0.12 ? 'good' : (f.score < -0.12 ? 'bad' : 'mixed')) }, ['Verdict: ' + f.net + '  ·  ' + Math.round(f.confidence * 100) + '% confident']));
       f.outcomes.forEach(function (o) { res.appendChild(el('div', { class: 'foresee-li ok', text: '✓ ' + o })); });
       f.risks.forEach(function (r) { res.appendChild(el('div', { class: 'foresee-li risk', text: '⚠ ' + r })); });
+      // the brain's forward simulation (P7): rehearse the move and report how it FEELS, no side effects
+      if (hasBrain() && council.imagine) {
+        try { var pv = council.imagine(a); res.appendChild(el('div', { class: 'foresee-li', text: '🧠 the brain rehearses this as ' + pv.vibe.tone + ' (warmth ' + Math.round(pv.vibe.warmth * 100) + '%, tension ' + Math.round(pv.vibe.tension * 100) + '%)' })); } catch (e) {}
+      }
       writeBtn.style.display = 'inline-block';
       if (hasAi()) { var sk = el('div', { class: 'muted', style: 'margin-top:8px', text: '…thinking through consequences' }); res.appendChild(sk); foreseeSketch(a).then(function (t) { if (!t) { sk.remove(); return; } sk.textContent = 'Likely consequences:'; t.split(/\n+/).forEach(function (l) { l = l.replace(/^[-•\d.\s]+/, '').trim(); if (l) res.appendChild(el('div', { class: 'foresee-li', text: '• ' + l })); }); }).catch(function () { sk.remove(); }); }
     }
@@ -856,14 +891,36 @@
   }
   // THE BRAIN STEP: the council deliberates on this beat and returns an intent + a directive
   // (a real steering instruction) + a vibe (tone/warmth/tension). Optional + graceful.
-  function beatSteer(beat) {
+  function beatSteer(beat, context) {
     if (!council) return Promise.resolve(null);
     return Promise.resolve(council.decide(beat)).then(function (d) {
       if (!d) return null;
       var v = d.vibe || {};
       var vibe = [v.tone, isFinite(v.warmth) && v.warmth > 0.6 ? 'warm' : null, isFinite(v.tension) && v.tension > 0.6 ? 'taut' : null].filter(Boolean).join(', ');
-      return { intent: d.intent || null, directive: d.directive || '', vibe: vibe };
+      var steer = { intent: d.intent || null, directive: d.directive || '', vibe: vibe };
+      // Semantic lore recall (the updated brain's declarativeStore: hybrid + MMR + provenance). Attach a
+      // ready-formatted block so the sync buildPrompt can use it; fall back to keyword relevantLore if absent.
+      if (council.recallLore) {
+        return council.recallLore(String(beat || '') + ' ' + String(context || ''), 12)
+          .then(function (hits) { steer.lore = formatRecalledLore(hits); return steer; })
+          .catch(function () { return steer; });
+      }
+      return steer;
     }).catch(function () { return null; });
+  }
+  // Group semantically-recalled lore for the prompt. Threads stay sourced from S.lore (they're the payoff
+  // scaffold — the ending must resolve them), so they're always surfaced regardless of recall ranking.
+  function formatRecalledLore(hits) {
+    var by = { PERSON: [], PLACE: [], WORLD: [] };
+    (hits || []).forEach(function (h) { var c = (h.category || 'WORLD'); if (c === 'THREAD') return; (by[c] || by.WORLD).push(h.text); });
+    var parts = [];
+    if (by.PERSON.length) parts.push('People: ' + by.PERSON.slice(0, 5).join(' | '));
+    if (by.PLACE.length) parts.push('Places: ' + by.PLACE.slice(0, 3).join(' | '));
+    if (by.WORLD.length) parts.push('World: ' + by.WORLD.slice(0, 5).join(' | '));
+    loreInit();
+    var th = (S.lore.threads || []).slice(-8);
+    if (th.length) parts.push('Open threads / clues (advance these; pay them off near the end): ' + th.join(' | '));
+    return parts.join('\n');
   }
   function buildPrompt(ctx) {
     var t = typeOf(), nt = narratorOf(ctx.narrator.type);
@@ -889,7 +946,7 @@
       (function () { var g = relevantGrounds(ctx.beat + ' ' + (S.theme || '')); return g ? '\nREAL-WORLD GROUNDING (the brain looked these up; use only what fits, keep the fiction):\n' + g : ''; })(),
       bearingsBlock(),
       destinationBlock(ctx.n),
-      (function () { var b = relevantLore(ctx.beat + ' ' + (ctx.recentText || '')); return b ? '\nSTORY KNOWLEDGE — what the brain has tracked; keep it consistent:\n' + b : ''; })(),
+      (function () { var b = (ctx.steer && ctx.steer.lore) || relevantLore(ctx.beat + ' ' + (ctx.recentText || '')); return b ? '\nSTORY KNOWLEDGE — what the brain has tracked; keep it consistent:\n' + b : ''; })(),
       ctx.recentBeats ? '\nTHE ARC SO FAR (recent beats): ' + ctx.recentBeats : '\nThis is the opening page.',
       (ctx.recent && ctx.recent.length) ? '\nRECENT PAGES — continue seamlessly in tense and voice, do NOT repeat them:\n' + ctx.recent.map(function (r) { return '[Page ' + r.n + ']\n' + r.body; }).join('\n\n') : '',
       ctx.steer && ctx.steer.directive ? '\nNARRATIVE DIRECTION (from the story brain): ' + ctx.steer.directive : '',
@@ -926,7 +983,7 @@
     var recent = treadmill(lastIdx), recentText = recent.length ? recent[recent.length - 1].body : '', beats = recentBeats(lastIdx);
     var ch = { n: n, title: title, beat: beat, body: '', motifId: motif && motif.id, engine: hasAi() ? 'perchance' : 'stub', streaming: true };
     S.pages.push(ch); S.pageIdx = S.pages.length - 1; render();   // jump the pager to the new page; it fills live
-    beatSteer(beat).then(function (steer) {
+    beatSteer(beat, recentText).then(function (steer) {
       if (run !== streamRun) return;   // stopped before the model replied
       ch.intent = steer && steer.intent;   // remember what the brain aimed for (shown in the meta)
       var ctx = { n: n, title: title, beat: beat, steer: steer, motif: motif, cast: S.cast, narrator: S.narrator, recent: recent, recentText: recentText, recentBeats: beats };
@@ -1593,14 +1650,67 @@
     values: function () { var ns = kvNs(); if (ns) return Promise.resolve(ns.values()); var o = lsAll(); return Promise.resolve(Object.keys(o).map(function (k) { return o[k]; })); }
   };
   function snapshot() {
-    return { id: S.bookId, title: bookTitle(), name: S.title, typeId: S.typeId, customGenre: S.customGenre, cryptid: S.cryptid, themeId: S.themeId, theme: S.theme, toneId: S.toneId, tone: S.tone, cast: S.cast, narrator: S.narrator, pages: S.pages, summary: S.summary, usedMotifs: S.usedMotifs, prefs: S.prefs, grounds: S.grounds, compass: S.compass, calendar: S.calendar, stance: S.stance, weights: S.weights, noise: S.noise, lore: S.lore, plan: S.plan, resolving: S.resolving, date: new Date().toISOString() };
+    return { id: S.bookId, title: bookTitle(), name: S.title, typeId: S.typeId, customGenre: S.customGenre, cryptid: S.cryptid, themeId: S.themeId, theme: S.theme, toneId: S.toneId, tone: S.tone, cast: S.cast, narrator: S.narrator, pages: S.pages, summary: S.summary, usedMotifs: S.usedMotifs, prefs: S.prefs, grounds: S.grounds, compass: S.compass, calendar: S.calendar, stance: S.stance, weights: S.weights, noise: S.noise, lore: S.lore, loreModel: S.loreModel, plan: S.plan, resolving: S.resolving, date: new Date().toISOString() };
   }
   function rememberLast() { try { if (S.bookId) localStorage.setItem('bookmaker:last', S.bookId); } catch (e) {} }
-  function autoSave() { if (!S.pages.length) return; if (!S.bookId) S.bookId = 'bk_' + Date.now(); rememberLast(); try { STORE.set(S.bookId, snapshot()); } catch (e) {} }
+  // ---- durable versioned backups (V3): "your book is safe" ----
+  // The companion's whole value is continuity; one localStorage clear shouldn't lose months of writing.
+  // A per-book version ring in its own namespace, snapshotted automatically as pages land + on a timer.
+  function bakAll() { return lsGet('bookmaker:backups', {}); }
+  function bakPut(o) { lsSet('bookmaker:backups', o); }
+  function makeBookSink(bookId) {
+    return {
+      write: function (version, payload, meta) { var all = bakAll(), b = all[bookId] || { index: [], v: {} }; b.v[version] = payload; b.index = b.index.filter(function (m) { return m.version !== version; }); b.index.push(meta); all[bookId] = b; bakPut(all); return Promise.resolve(); },
+      read: function (version) { var b = bakAll()[bookId]; return Promise.resolve(b && b.v && b.v[version] != null ? b.v[version] : null); },
+      list: function () { var b = bakAll()[bookId]; return Promise.resolve((b && b.index ? b.index : []).slice().sort(function (a, c) { return c.version - a.version; })); },
+      remove: function (version) { var all = bakAll(), b = all[bookId]; if (b) { delete b.v[version]; b.index = b.index.filter(function (m) { return m.version !== version; }); all[bookId] = b; bakPut(all); } return Promise.resolve(); }
+    };
+  }
+  var bookBackup = null, bookBackupId = null;
+  function ensureBackup() {
+    if (!(window.RookBrain && window.RookBrain.makeBackup) || !S.bookId) return null;
+    if (bookBackup && bookBackupId === S.bookId) return bookBackup;
+    bookBackupId = S.bookId;
+    bookBackup = window.RookBrain.makeBackup({ getState: function () { return JSON.stringify(snapshot()); }, sink: makeBookSink(S.bookId), now: function () { return Date.now(); }, keep: 12, everyTurns: 1, everyMs: 300000 });
+    return bookBackup;
+  }
+  function listBackups(id) { var bb = (id && id !== S.bookId) ? window.RookBrain.makeBackup({ getState: function () { return ''; }, sink: makeBookSink(id), now: function () { return Date.now(); } }) : ensureBackup(); return bb ? bb.list() : Promise.resolve([]); }
+  function restoreBackupVersion(id, version) {
+    var bb = window.RookBrain && window.RookBrain.makeBackup ? window.RookBrain.makeBackup({ getState: function () { return ''; }, sink: makeBookSink(id), now: function () { return Date.now(); } }) : null;
+    if (!bb) return;
+    bb.restore(version).then(function (json) {
+      if (json == null) { toast('Backup not found'); return; }
+      try { openBook(JSON.parse(json)); toast('⟲ Restored a backup'); } catch (e) { toast('That backup is corrupt'); }
+    });
+  }
+
+  // A chooser listing this book's automatic versioned backups, newest first, each restorable in one click.
+  function openBackups(b) {
+    listBackups(b.id).then(function (versions) {
+      var box = el('div', { class: 'bm-modal-box' });
+      box.appendChild(el('div', { class: 'bm-modal-msg', text: '🛟 Backups of “' + (b.title || 'Untitled') + '”' }));
+      if (!versions.length) box.appendChild(el('div', { class: 'muted', text: 'No backups yet — they’re captured automatically as you write.' }));
+      versions.forEach(function (m) {
+        var when = m.at ? new Date(m.at).toLocaleString() : ('v' + m.version);
+        var kb = m.bytes ? Math.max(1, Math.round(m.bytes / 1024)) + ' KB' : '';
+        var row = el('div', { class: 'row', style: 'align-items:center;gap:8px;margin-top:6px' }, [
+          el('span', { class: 'muted', style: 'flex:1', text: 'v' + m.version + ' · ' + when + (m.turns ? ' · ' + m.turns + ' pg' : '') + (kb ? ' · ' + kb : '') }),
+          el('button', { class: 'btn sm', onclick: function () { ov.remove(); confirmAsync('Restore this backup? It replaces the current state of this book.', { okText: 'Restore' }).then(function (ok) { if (ok) restoreBackupVersion(b.id, m.version); }); } }, ['Restore'])
+        ]);
+        box.appendChild(row);
+      });
+      box.appendChild(el('div', { class: 'bm-modal-row' }, [el('button', { class: 'btn ghost sm', onclick: function () { ov.remove(); } }, ['Close'])]));
+      var ov = el('div', { class: 'bm-modal' }, [box]);
+      ov.addEventListener('mousedown', function (e) { if (e.target === ov) ov.remove(); });
+      document.body.appendChild(ov);
+    });
+  }
+
+  function autoSave() { if (!S.pages.length) return; if (!S.bookId) S.bookId = 'bk_' + Date.now(); rememberLast(); try { STORE.set(S.bookId, snapshot()); } catch (e) {} try { var bb = ensureBackup(); if (bb) bb.maybeSnapshot({ turns: S.pages.length }); } catch (e) {} }
   function saveBook() { if (!S.pages.length) { toast('Write a page first'); return; } if (!S.bookId) S.bookId = 'bk_' + Date.now(); rememberLast(); STORE.set(S.bookId, snapshot()).then(function () { toast('Saved to My Books'); }); }
-  function openBook(b) { S.bookId = b.id; S.title = b.name || ''; S.typeId = b.typeId; S.customGenre = b.customGenre || ''; S.cryptid = b.cryptid || ''; S.themeId = b.themeId || 'none'; S.theme = b.theme || ''; S.toneId = b.toneId || 'surprise'; S.tone = b.tone || ''; S.cast = b.cast || []; S.narrator = b.narrator || null; S.pages = b.pages || []; S.pageIdx = Math.max(0, (b.pages || []).length - 1); S.summary = b.summary || ''; S.usedMotifs = b.usedMotifs || []; S.prefs = b.prefs || null; S.grounds = b.grounds || (b.research ? [b.research] : []); S.compass = b.compass || { place: '', heading: '' }; S.calendar = b.calendar || { label: '', day: 0 }; S.stance = b.stance || 'balanced'; S.weights = b.weights || {}; S.noise = b.noise || 0; S.lore = b.lore || { people: [], places: [], world: (b.bible || []), threads: [] }; loreInit(); S.plan = b.plan || { end: '', target: 0 }; S.resolving = !!b.resolving; rebuildCouncil(); rememberLast(); S.view = 'wizard'; S.step = 3; render(); }
+  function openBook(b) { S.bookId = b.id; S.title = b.name || ''; S.typeId = b.typeId; S.customGenre = b.customGenre || ''; S.cryptid = b.cryptid || ''; S.themeId = b.themeId || 'none'; S.theme = b.theme || ''; S.toneId = b.toneId || 'surprise'; S.tone = b.tone || ''; S.cast = b.cast || []; S.narrator = b.narrator || null; S.pages = b.pages || []; S.pageIdx = Math.max(0, (b.pages || []).length - 1); S.summary = b.summary || ''; S.usedMotifs = b.usedMotifs || []; S.prefs = b.prefs || null; S.grounds = b.grounds || (b.research ? [b.research] : []); S.compass = b.compass || { place: '', heading: '' }; S.calendar = b.calendar || { label: '', day: 0 }; S.stance = b.stance || 'balanced'; S.weights = b.weights || {}; S.noise = b.noise || 0; S.lore = b.lore || { people: [], places: [], world: (b.bible || []), threads: [] }; S.loreModel = b.loreModel || []; loreInit(); S.plan = b.plan || { end: '', target: 0 }; S.resolving = !!b.resolving; rebuildCouncil(); rememberLast(); S.view = 'wizard'; S.step = 3; render(); }
   function deleteBook(id) { STORE.delete(id).then(function () { if (S.bookId === id) S.bookId = null; render(); }); }
-  function newBook() { S.bookId = null; S.title = ''; S.typeId = null; S.customGenre = ''; S.cryptid = ''; S.themeId = 'none'; S.theme = ''; S.toneId = 'surprise'; S.tone = ''; S.cast = []; S.narrator = null; S.pages = []; S.pageIdx = 0; S.summary = ''; S.usedMotifs = []; S.prefs = null; S.grounds = []; S.compass = { place: '', heading: '' }; S.calendar = { label: '', day: 0 }; S.stance = 'balanced'; S.weights = {}; S.noise = 0; S.lore = { people: [], places: [], world: [], threads: [] }; S.plan = { end: '', target: 0 }; S.resolving = false; S._lastBook = null; rebuildCouncil(); S.view = 'wizard'; S.step = 0; render(); }
+  function newBook() { S.bookId = null; S.title = ''; S.typeId = null; S.customGenre = ''; S.cryptid = ''; S.themeId = 'none'; S.theme = ''; S.toneId = 'surprise'; S.tone = ''; S.cast = []; S.narrator = null; S.pages = []; S.pageIdx = 0; S.summary = ''; S.usedMotifs = []; S.prefs = null; S.grounds = []; S.compass = { place: '', heading: '' }; S.calendar = { label: '', day: 0 }; S.stance = 'balanced'; S.weights = {}; S.noise = 0; S.lore = { people: [], places: [], world: [], threads: [] }; S.loreModel = []; S.plan = { end: '', target: 0 }; S.resolving = false; S._lastBook = null; rebuildCouncil(); S.view = 'wizard'; S.step = 0; render(); }
 
   // ------------------------------------------------- AI-assist: invent a character ----
   var INVENT_POOL = [
@@ -1675,6 +1785,7 @@
           el('button', { class: 'chip', style: 'cursor:pointer', onclick: function () { exportBookAsk(b, 'txt'); } }, ['↓ txt']),
           el('button', { class: 'chip', style: 'cursor:pointer', onclick: function () { exportBookAsk(b, 'md'); } }, ['↓ md']),
           el('button', { class: 'chip', style: 'cursor:pointer', onclick: function () { exportBookFile(b, 'json'); } }, ['↓ json']),
+          el('button', { class: 'chip', style: 'cursor:pointer', title: 'Restore an automatic versioned backup of this book', onclick: function () { openBackups(b); } }, ['🛟 backups']),
           el('button', { class: 'chip', style: 'cursor:pointer', onclick: function () { confirmAsync('Delete “' + (b.title || 'this book') + '”? This cannot be undone.', { okText: 'Delete' }).then(function (ok) { if (ok) deleteBook(b.id); }); } }, ['🗑 delete'])
         ]);
         list.appendChild(el('div', { class: 'cm' }, [
@@ -1823,17 +1934,25 @@
   function renderBrainPanel() {
     var p = el('div', { class: 'brainp' });
     p.appendChild(el('div', { class: 'brainp-read', text: '🧠 ' + statusReadout() }));
+    // new-brain faculties readout: how sure it is (metacognition) + its evolving self-note (self-narrative)
+    var st2 = brainStatus();
+    if (st2) {
+      if (st2.certainty != null) p.appendChild(el('div', { class: 'muted', style: 'margin-top:4px;font-size:12px', text: 'confidence ' + Math.round(st2.certainty * 100) + '%' }));
+      if (st2.self) p.appendChild(el('div', { class: 'brainp-read', style: 'margin-top:6px', text: '📖 ' + st2.self }));
+    }
     // stance presets
     var sr = el('div', { class: 'row', style: 'margin-top:8px' }, [el('span', { class: 'muted', text: 'Stance:' })]);
     Object.keys(STANCES).forEach(function (id) { sr.appendChild(el('button', { class: 'chip' + (S.stance === id ? ' on' : ''), style: 'cursor:pointer', title: STANCES[id].blurb, onclick: function () { applyStance(id); } }, [STANCES[id].label])); });
     p.appendChild(sr);
-    // faculty weight sliders
+    // neuromodulator setpoint sliders (the brain's tunable chemistry = the new "faculties")
     var fl = el('div', { class: 'brainp-facs' });
+    var sp = (council && council.setpoints) ? council.setpoints() : {};
     CORE_FACULTIES.forEach(function (id) {
-      var val = Math.round(((S.weights && S.weights[id]) || 1) * 100);
-      var rng = el('input', { type: 'range', min: '0', max: '200', step: '10', value: String(val) });
+      var meta = CHEM_META[id] || { label: id, def: 0.3 };
+      var cur = (S.weights && S.weights[id] != null) ? S.weights[id] : (sp[id] != null ? sp[id] : meta.def);
+      var rng = el('input', { type: 'range', min: '0', max: '100', step: '5', value: String(Math.round(cur * 100)) });
       var cap = el('span', { class: 'brainp-fac-cap' });
-      function setCap() { cap.textContent = id + ': ' + (rng.value / 100).toFixed(1) + '×'; }
+      function setCap() { cap.textContent = meta.label + ': ' + Math.round(rng.value) + '%'; }
       setCap();
       rng.addEventListener('input', setCap);
       rng.addEventListener('change', function () { setFacultyWeight(id, rng.value / 100); });

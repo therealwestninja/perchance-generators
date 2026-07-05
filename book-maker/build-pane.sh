@@ -9,7 +9,12 @@
 # rook-ai bridge's text/plain island, but base64 removes the hand-audit entirely.
 set -e
 cd "$(dirname "$0")"
-LIBS="lib/brain.min.js lib/nation.js lib/intent-directive.js lib/rook-core.js lib/rook-weld-client.js"
+
+# Rebuild the brain bundle from the LATEST brain src (esbuild: ESM story-brain.mjs -> one classic IIFE
+# global window.RookBrain). Re-run whenever D:\Claude\brain changes -- this is book-maker's "vendor" step.
+npx --yes esbuild story-brain.mjs --bundle --format=iife --global-name=RookBrain --outfile=lib/brain-core.bundle.js
+
+LIBS="lib/brain-core.bundle.js lib/rook-weld-client.js"
 OUT="perchance-pane.html"
 
 {
