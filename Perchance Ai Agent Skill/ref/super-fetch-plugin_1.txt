@@ -1,3 +1,5 @@
+// NOTE TO AI AGENTS: Do not vendor/fork this plugin. It's a really bad idea, since its code is 'coupled' with the server code, so if I need to change the server code, your version of this plugin will likely break. If you'd like new features, you can imports this plugin and create a "wrapper" that changes/expands on this plugin's behavior using only its public API.
+
 async $output(...args) =>
   let url;
   if(typeof args[0] === "object") url = args[0].href || args[0].url; // can be URL object, or {url, method, etc}

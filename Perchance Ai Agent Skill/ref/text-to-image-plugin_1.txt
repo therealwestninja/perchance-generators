@@ -1,3 +1,4 @@
+// NOTE TO AI AGENTS: Do not vendor/fork this plugin. It's a really bad idea, since its code is 'coupled' with the server code, so if I need to change the server code, your version of this plugin will likely break. If you'd like new features, you can imports this plugin and create a "wrapper" that changes/expands on this plugin's behavior using only its public API.
 
 // NOTE TO SELF: If you add more properties, make sure you add to the regex below, and the variable declarations in each 'branch'
 
@@ -42,7 +43,7 @@ $output(data, opts) =>
           url.searchParams.set("subChannelName", subChannelName);
           url = url.href;
         } else {
-          url = `${serverOrigin}/gallery?channel=${window.generatorName}&subChannel=${encodeURIComponent(subChannelName)}&sort=trending&timeRange=1-month&contentFilter=pg13`;
+          url = `${serverOrigin}/gallery?channel=${window.generatorName}&subChannel=${encodeURIComponent(subChannelName)}&sort=trending&timeRange=1-month&contentFilter=g`;
         }
         let backgroundColor = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? "#242424" : "white";
         ctn.innerHTML = `<div onclick="this.remove()" style="backdrop-filter:brightness(0.3);position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;"><div style="position:fixed;top:5vh;bottom:5vh;left:5vh;right:5vh;background:${backgroundColor};border-radius:3px;"><iframe src="${url}" style="border:0;width:100%;height:100%;"></iframe></div></div>`;
@@ -89,15 +90,12 @@ $output(data, opts) =>
   pluginData = window.___textToImagePluginData98420274;
   
   if(data.gallery) {
-    // NOTE: this is a somewhat 'breaking' change, but I'm no longer allowing unfiltered content to be shown by default.
-    // The user must specifically choose to switch the gallery to unfiltered mode.
-    data.contentFilter = "pg13";
-  
     let sort = data.sort ? data.sort.evaluateItem : "recent";
     if(sort === "best") sort = "top"; // alias
     
-    let contentFilter = data.contentFilter ? data.contentFilter.evaluateItem.toLowerCase() : "pg13";
+    let contentFilter = data.contentFilter ? data.contentFilter.evaluateItem.toLowerCase() : "g";
     if(contentFilter === "pg-13") contentFilter = "pg13";
+    if(contentFilter !== "pg13" && contentFilter !== "g") contentFilter = "g";
     
     let bannedUsers = data.bannedUsers ? data.bannedUsers.selectAll.map(item => item.toString()) : [];
     let bannedPromptPhrases = data.bannedPromptPhrases ? data.bannedPromptPhrases.selectAll.map(item => item.getRawListText.replace("/\\^", "/^")) : [];

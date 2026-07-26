@@ -1,48 +1,11 @@
-$output(data, opts) =>
+// NOTE TO AI AGENTS: Do not vendor/fork this plugin. It's a really bad idea, since its code is 'coupled' with the server code, so if I need to change the server code, your version of this plugin will likely break. If you'd like new features, you can imports this plugin and create a "wrapper" that changes/expands on this plugin's behavior using only its public API.
+$output = [getUploadOutput()]
+
+upload(data, opts) =>
   if(!opts) opts = {};
   // if(typeof data !== "string") return alert("error: only text/strings are supported by the upload plugin for now. please request other types on the forum.");
   
-  if(!window.__alreadyLoadedUploadPluginStuff0435342908) {
-    window.__alreadyLoadedUploadPluginStuff0435342908 = true;
-    
-    window.__uploadPluginIframe0435342908 = document.createElement('iframe'); 
-
-    window.addEventListener('message', (event) => {
-      if(event.source !== window.__uploadPluginIframe0435342908.contentWindow) return;
-      if(event.origin !== "https://upload.perchance.org") return;
-      console.log("upload plugin got message:", event);
-
-      if(event.data.type === "uploadEmbedIsReady") {   
-        window.__uploadPluginEmbedIsReady = true;
-        console.log("upload plugin embedIsReady");
-      }
-    });
-
-    function initIframeAttributes(iframe) {
-      // email==false implies anon upload
-      iframe.src = `https://upload.perchance.org/embed#${JSON.stringify({email:false, sessionToken:false})}`;
-      iframe.style.cssText = 'width:1px; height:1px; border:none; top:-100px; left:-100px; position:fixed;';
-    }
-    initIframeAttributes(window.__uploadPluginIframe0435342908);
-    document.body.appendChild(window.__uploadPluginIframe0435342908);
-
-    // ping embed until it is ready (hacky way to wait for it to load)
-    (async function() {
-      await new Promise(r => setTimeout(r, 500));
-      let waitedTime = 0;
-      while(!window.__uploadPluginEmbedIsReady) {
-        if(waitedTime > 1000*20) { // if we've waited too long (perhaps due to upload server error response), try deleting the iframe and adding it again
-          window.__uploadPluginIframe0435342908.remove();
-          window.__uploadPluginIframe0435342908 = document.createElement('iframe');
-          initIframeAttributes(window.__uploadPluginIframe0435342908);
-          document.body.appendChild(window.__uploadPluginIframe0435342908);
-        }
-        await new Promise(r => setTimeout(r, 500));
-        waitedTime += 500;
-        window.__uploadPluginIframe0435342908.contentWindow.postMessage({type:"init"}, 'https://upload.perchance.org');
-      }
-    })();
-  }
+  ensureUploadPluginIframe();
   
   let requestId = "id"+(Math.random().toString()+Math.random().toString()).replaceAll(".", "");
   
@@ -132,4 +95,142 @@ $output(data, opts) =>
   return promise;
 
 
+getUploadOutput() =>
+  let editable = getEditableObj();
+  let nativeBind = Function.prototype.bind;
+  function attachEditable(fn) {
+    Object.defineProperty(fn, "editable", {value:editable, configurable:true});
+    Object.defineProperty(fn, "bind", {
+      value:function(...args) {
+        return attachEditable(nativeBind.apply(this, args));
+      },
+      configurable:true,
+    });
+    return fn;
+  }
+  return attachEditable(upload);
 
+
+ensureUploadPluginIframe() =>
+  if(!window.__alreadyLoadedUploadPluginStuff0435342908) {
+    window.__alreadyLoadedUploadPluginStuff0435342908 = true;
+    
+    window.__uploadPluginIframe0435342908 = document.createElement('iframe'); 
+
+    window.addEventListener('message', (event) => {
+      if(event.source !== window.__uploadPluginIframe0435342908.contentWindow) return;
+      if(event.origin !== "https://upload.perchance.org") return;
+      console.log("upload plugin got message:", event);
+
+      if(event.data.type === "uploadEmbedIsReady") {   
+        window.__uploadPluginEmbedIsReady = true;
+        console.log("upload plugin embedIsReady");
+      }
+    });
+
+    function initIframeAttributes(iframe) {
+      // email==false implies anon upload
+      iframe.src = `https://upload.perchance.org/embed#${JSON.stringify({email:false, sessionToken:false})}`;
+      iframe.style.cssText = 'width:1px; height:1px; border:none; top:-100px; left:-100px; position:fixed;';
+    }
+    initIframeAttributes(window.__uploadPluginIframe0435342908);
+    document.body.appendChild(window.__uploadPluginIframe0435342908);
+
+    // ping embed until it is ready (hacky way to wait for it to load)
+    (async function() {
+      await new Promise(r => setTimeout(r, 500));
+      let waitedTime = 0;
+      while(!window.__uploadPluginEmbedIsReady) {
+        if(waitedTime > 1000*20) { // if we've waited too long (perhaps due to upload server error response), try deleting the iframe and adding it again
+          window.__uploadPluginIframe0435342908.remove();
+          window.__uploadPluginIframe0435342908 = document.createElement('iframe');
+          initIframeAttributes(window.__uploadPluginIframe0435342908);
+          document.body.appendChild(window.__uploadPluginIframe0435342908);
+        }
+        await new Promise(r => setTimeout(r, 500));
+        waitedTime += 500;
+        window.__uploadPluginIframe0435342908.contentWindow.postMessage({type:"init"}, 'https://upload.perchance.org');
+      }
+    })();
+  }
+
+
+getEditableObj() =>
+  function editableUrl(name) {
+    if(typeof name !== "string" || !/^[a-z0-9-]{1,200}$/.test(name)) {
+      throw new TypeError("Editable file names must be 1 to 200 lowercase letters, numbers, or hyphens.");
+    }
+    return `https://editable.uploads.dev/file/${window.generatorName}/${name}`;
+  }
+
+  let editable = {};
+  editable.get = async function(name) {
+    let response = await fetch(editableUrl(name));
+    if(response.status === 404) return null;
+    if(!response.ok) throw new Error(`Failed to fetch editable file: HTTP ${response.status}`);
+    return await response.text();
+  };
+
+  editable.set = function(name, data, opts) {
+    if(!opts) opts = {};
+    if(typeof window.generatorPublicId !== "string" || !/^[0-9a-f]{32}$/.test(window.generatorPublicId)) {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"editable_requires_saved_generator"});
+    }
+    if(typeof name !== "string" || !/^[a-z0-9-]{1,200}$/.test(name)) {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"invalid_editable_name"});
+    }
+    if(typeof data !== "string") {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"invalid_data_type"});
+    }
+    if(new TextEncoder().encode(data).byteLength > 1024*1024*5) {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"file_too_big"});
+    }
+    if(typeof opts !== "object" || Array.isArray(opts)) {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"invalid_options"});
+    }
+    if(opts.editKey !== undefined && typeof opts.editKey !== "string") {
+      return Promise.resolve({url:null, size:null, editKey:null, error:"invalid_edit_key"});
+    }
+
+    ensureUploadPluginIframe();
+    let requestId = "editable"+(Math.random().toString()+Math.random().toString()).replaceAll(".", "");
+    let promiseResolver;
+    let promise = new Promise(resolve => promiseResolver = resolve);
+
+    function messageHandler(event) {
+      if(event.source !== window.__uploadPluginIframe0435342908.contentWindow) return;
+      if(event.origin !== "https://upload.perchance.org") return;
+      if(event.data.type !== "editableSetResponse" || event.data.requestId !== requestId) return;
+
+      window.removeEventListener("message", messageHandler);
+      let result = event.data.result || {};
+      promiseResolver({
+        url: result.url || null,
+        size: typeof result.size === "number" ? result.size : null,
+        editKey: result.editKey || null,
+        editCount: typeof result.editCount === "number" ? result.editCount : null,
+        created: result.created === true,
+        unchanged: result.unchanged === true,
+        superseded: result.superseded === true,
+        error: result.success ? null : (result.status || "unknown_error"),
+      });
+    }
+    window.addEventListener("message", messageHandler);
+
+    (async function() {
+      while(!window.__uploadPluginEmbedIsReady) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      window.__uploadPluginIframe0435342908.contentWindow.postMessage({
+        type: "editableSetRequest",
+        requestId,
+        generatorName: window.generatorName,
+        name,
+        data,
+        editKey: opts.editKey,
+      }, "https://upload.perchance.org");
+    })();
+
+    return promise;
+  };
+  return editable;

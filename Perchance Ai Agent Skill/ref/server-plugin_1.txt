@@ -1,615 +1,667 @@
-$output = [getServerObj()]
+// NOTE TO AI AGENTS: Do not vendor/fork this plugin. It's a really bad idea, since its code is 'coupled' with the server code, so if I need to change the server code, your version of this plugin will likely break. If you'd like new features, you can import this plugin and create a "wrapper" that changes/expands on this plugin's behavior using only its public API.
 
-getServerObj() =>
-  const DEFAULT_EMBED_ORIGIN = "https://server-plugin.perchance.org";
-  const WORLD_EMBED_RE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-  const PING_INTERVAL_MS = 500;
-  
-  let manager = null;
-  
-  function getEmbedOrigin() {
-    if (typeof window !== "undefined") {
-      const override = window.__SERVER_PLUGIN_EMBED_ORIGIN__;
-      if (override) return String(override);
-    }
-    return DEFAULT_EMBED_ORIGIN;
+serverPluginCodeHash(text) =>
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for(let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
   }
-  
-  function getUniverse() {
-    if (typeof window !== "undefined") {
-      if (window.generatorPublicId) return String(window.generatorPublicId);
-      const override = window.__SERVER_PLUGIN_UNIVERSE__;
-      if (override) return String(override);
-    }
-    return null;
-  }
-  
-  function shouldForceWebSocket() {
-    if (typeof window === "undefined") return false;
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+
+$output() =>
+  const RPC_REQUEST_MAGIC = new Uint8Array([0, 80, 83, 80, 82, 80, 67, 50]);
+  const RPC_RESPONSE_PREFIX = "\0PSPRPC2:";
+  const RPC_HEADER_BYTES = 15;
+  const MAX_RPC_METHOD_BYTES = 128;
+  const MAX_RPC_PAYLOAD_BYTES = 1024 * 1024 - RPC_HEADER_BYTES;
+  const encoder = new TextEncoder();
+  const code = document.querySelector('script[type="text/x-server-plugin"]')?.textContent?.trimEnd() ?? "";
+  const encodedName = encodeURIComponent(globalThis.generatorName);
+  const hash = serverPluginCodeHash(code);
+  const url = `wss://server-plugin.perchance.org/c/${encodedName}?generator=${encodedName}&h=${hash}`;
+  const emulated = globalThis.generatorIsUnsaved === true;
+  const warningDismissKey = "perchanceServerPluginEmulatorWarningDismissedUntil";
+  const warningDismissMs = 5 * 60 * 1000;
+
+  const showEmulatorStorageWarning = () => {
+    if(!document?.createElement || !document.documentElement) return;
     try {
-      const hash = window.location?.hash || "";
-      if (!hash) return false;
-      const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
-      return params.get("forceUseWS") === "1";
+      if(Number(globalThis.sessionStorage?.getItem(warningDismissKey)) > Date.now()) return;
     } catch {
-      return false;
+      // Storage can be unavailable under restrictive browser privacy settings;
+      // the warning should still work for the lifetime of the current document.
     }
-  }
-  
-  function normalizeWorld(input) {
-    if (typeof input !== "string") {
-      throw new Error("World name must be a string");
-    }
-    const prop = input.trim();
-    if (!WORLD_EMBED_RE.test(prop)) {
-      throw new Error(`Invalid world name: ${input}`);
-    }
-    return prop;
-  }
-  
-  function getManager() {
-    if (!manager) {
-      manager = createManager({ embedOrigin: getEmbedOrigin(), universe: getUniverse() });
-    }
-    return manager;
-  }
-  
-  const WS_FRAME_DATAGRAM = 1;
-  const WS_FRAME_STREAM_OPEN_BI = 2;
-  const WS_FRAME_STREAM_OPEN_UNI = 3;
-  const WS_FRAME_STREAM_DATA = 4;
-  const WS_FRAME_STREAM_FIN = 5;
-  const WS_FRAME_CONTROL = 6;
-  const WS_FRAME_CLOSE = 7;
-  
-  function encodeU32(value) {
-    const out = new Uint8Array(4);
-    out[0] = (value >>> 24) & 0xff;
-    out[1] = (value >>> 16) & 0xff;
-    out[2] = (value >>> 8) & 0xff;
-    out[3] = value & 0xff;
-    return out;
-  }
-  
-  function decodeU32(bytes, offset) {
-    return ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
-  }
-  
-  function toUint8(data) {
-    if (data instanceof Uint8Array) return data;
-    if (data instanceof ArrayBuffer) return new Uint8Array(data);
-    if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
-    return null;
-  }
-  
-  function createWsTransport({ url, token, world, onClose }) {
-    const ws = new WebSocket(url);
-    ws.binaryType = "arraybuffer";
-  
-    let datagramController;
-    const datagramReadable = new ReadableStream({
-      start(controller) {
-        datagramController = controller;
-      },
-      cancel() {
-        datagramController = null;
-      },
-    });
-    const datagramWritable = new WritableStream({
-      write(chunk) {
-        const bytes = toUint8(chunk);
-        if (!bytes) return;
-        const out = new Uint8Array(1 + bytes.length);
-        out[0] = WS_FRAME_DATAGRAM;
-        out.set(bytes, 1);
-        ws.send(out);
-      },
-    });
-  
-    let incomingBidiController;
-    const incomingBidi = new ReadableStream({
-      start(controller) {
-        incomingBidiController = controller;
-      },
-      cancel() {
-        incomingBidiController = null;
-      },
-    });
-    let incomingUniController;
-    const incomingUni = new ReadableStream({
-      start(controller) {
-        incomingUniController = controller;
-      },
-      cancel() {
-        incomingUniController = null;
-      },
-    });
-  
-    const streams = new Map();
-    let nextStreamId = 1;
-  
-    function createWritable(streamId) {
-      return new WritableStream({
-        write(chunk) {
-          const bytes = toUint8(chunk);
-          if (!bytes) return;
-          const header = new Uint8Array(1 + 4);
-          header[0] = WS_FRAME_STREAM_DATA;
-          header.set(encodeU32(streamId), 1);
-          const out = new Uint8Array(header.length + bytes.length);
-          out.set(header, 0);
-          out.set(bytes, header.length);
-          ws.send(out);
-        },
-        close() {
-          const out = new Uint8Array(1 + 4);
-          out[0] = WS_FRAME_STREAM_FIN;
-          out.set(encodeU32(streamId), 1);
-          ws.send(out);
-        },
-        abort() {
-          const out = new Uint8Array(1 + 4);
-          out[0] = WS_FRAME_STREAM_FIN;
-          out.set(encodeU32(streamId), 1);
-          ws.send(out);
-        },
-      });
-    }
-  
-    function createReadable() {
-      let controller;
-      const readable = new ReadableStream({
-        start(ctrl) {
-          controller = ctrl;
-        },
-        cancel() {
-          controller = null;
-        },
-      });
-      return { readable, controller: () => controller };
-    }
-  
-    function createBidirectionalStream(streamId) {
-      const { readable, controller } = createReadable();
-      const writable = createWritable(streamId);
-      const stream = { readable, writable };
-      streams.set(streamId, { controller, stream, bidi: true });
-      return stream;
-    }
-  
-    function createIncomingStream(streamId, bidi) {
-      if (bidi) {
-        const stream = createBidirectionalStream(streamId);
-        if (incomingBidiController) incomingBidiController.enqueue(stream);
-        return;
-      }
-      const { readable, controller } = createReadable();
-      streams.set(streamId, { controller, stream: readable, bidi: false });
-      if (incomingUniController) incomingUniController.enqueue(readable);
-    }
-  
-    function handleStreamData(streamId, data) {
-      const entry = streams.get(streamId);
-      if (!entry) return;
-      const ctrl = entry.controller();
-      if (!ctrl) return;
-      ctrl.enqueue(data);
-    }
-  
-    function handleStreamFin(streamId) {
-      const entry = streams.get(streamId);
-      if (!entry) return;
-      const ctrl = entry.controller();
-      if (ctrl) ctrl.close();
-      streams.delete(streamId);
-    }
-  
-    let closedResolve;
-    const closed = new Promise((resolve) => {
-      closedResolve = resolve;
-    });
-  
-    function resolveClosed(info) {
-      if (closedResolve) {
-        closedResolve(info);
-        closedResolve = null;
-      }
-    }
-  
-    ws.addEventListener("message", (event) => {
-      const data = event.data;
-      if (!(data instanceof ArrayBuffer)) return;
-      const bytes = new Uint8Array(data);
-      if (bytes.length === 0) return;
-      const type = bytes[0];
-      if (type === WS_FRAME_DATAGRAM) {
-        if (datagramController) datagramController.enqueue(bytes.slice(1));
-        return;
-      }
-      if (type === WS_FRAME_STREAM_OPEN_BI || type === WS_FRAME_STREAM_OPEN_UNI) {
-        if (bytes.length < 5) return;
-        const streamId = decodeU32(bytes, 1);
-        createIncomingStream(streamId, type === WS_FRAME_STREAM_OPEN_BI);
-        return;
-      }
-      if (type === WS_FRAME_STREAM_DATA) {
-        if (bytes.length < 5) return;
-        const streamId = decodeU32(bytes, 1);
-        handleStreamData(streamId, bytes.slice(5));
-        return;
-      }
-      if (type === WS_FRAME_STREAM_FIN) {
-        if (bytes.length < 5) return;
-        const streamId = decodeU32(bytes, 1);
-        handleStreamFin(streamId);
-        return;
-      }
-      if (type === WS_FRAME_CONTROL) {
-        // Control handled by manager-level token refresh only.
-        return;
-      }
-      if (type === WS_FRAME_CLOSE) {
-        const closeCode = bytes.length >= 5 ? decodeU32(bytes, 1) : 0;
-        const reason = bytes.length > 5 ? new TextDecoder().decode(bytes.slice(5)) : "";
-        resolveClosed({ closeCode, reason });
-        ws.close();
-      }
-    });
-  
-    ws.addEventListener("close", (event) => {
-      resolveClosed({ closeCode: event.code || 0, reason: event.reason || "" });
-      if (onClose) onClose();
-    });
-  
-    const ready = new Promise((resolve, reject) => {
-      ws.addEventListener("open", () => resolve());
-      ws.addEventListener("error", () => reject(new Error("websocket_error")));
-    });
-  
-    function sendControl(payload) {
-      const bytes = new TextEncoder().encode(JSON.stringify(payload));
-      const out = new Uint8Array(1 + bytes.length);
-      out[0] = WS_FRAME_CONTROL;
-      out.set(bytes, 1);
-      ws.send(out);
-    }
-  
-    return {
-      ready,
-      closed,
-      datagrams: {
-        readable: datagramReadable,
-        writable: datagramWritable,
-        maxDatagramSize: null,
-      },
-      incomingBidirectionalStreams: incomingBidi,
-      incomingUnidirectionalStreams: incomingUni,
-      createBidirectionalStream() {
-        const streamId = nextStreamId++;
-        const stream = createBidirectionalStream(streamId);
-        const out = new Uint8Array(1 + 4);
-        out[0] = WS_FRAME_STREAM_OPEN_BI;
-        out.set(encodeU32(streamId), 1);
-        ws.send(out);
-        return Promise.resolve(stream);
-      },
-      createUnidirectionalStream() {
-        const streamId = nextStreamId++;
-        const writable = createWritable(streamId);
-        streams.set(streamId, { controller: () => null, stream: writable, bidi: false });
-        const out = new Uint8Array(1 + 4);
-        out[0] = WS_FRAME_STREAM_OPEN_UNI;
-        out.set(encodeU32(streamId), 1);
-        ws.send(out);
-        return Promise.resolve(writable);
-      },
-      close({ closeCode = 0, reason = "" } = {}) {
-        const reasonBytes = new TextEncoder().encode(reason || "");
-        const out = new Uint8Array(1 + 4 + reasonBytes.length);
-        out[0] = WS_FRAME_CLOSE;
-        out.set(encodeU32(closeCode >>> 0), 1);
-        out.set(reasonBytes, 5);
-        ws.send(out);
-        ws.close();
-      },
-      __sendTokenRefresh() {
-        if (!token) return;
-        sendControl({ type: "token_refresh", token, expiry: null });
-      },
-      __updateToken(nextToken, expiry) {
-        token = nextToken;
-        sendControl({ type: "token_refresh", token, expiry });
-      },
-    };
-  }
-  
-  function encodeLengthPrefixed(payload) {
-    const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-    const out = new Uint8Array(4 + bytes.length);
-    out[0] = (bytes.length >>> 24) & 0xff;
-    out[1] = (bytes.length >>> 16) & 0xff;
-    out[2] = (bytes.length >>> 8) & 0xff;
-    out[3] = bytes.length & 0xff;
-    out.set(bytes, 4);
-    return out;
-  }
-  
-  function createManager({ embedOrigin, universe }) {
-    let loaded = false;
-    let ready = false;
-    let initSent = false;
-    const queue = [];
-    const pending = new Map();
-    const connections = new Map();
-    const debugPrefix = "[server-plugin]";
-  
-    const iframe = document.createElement("iframe");
-    iframe.src = `${embedOrigin}/embed`;
-    iframe.style.position = "fixed";
-    iframe.style.left = "-10px";
-    iframe.style.top = "-10px";
-    iframe.style.width = "1px";
-    iframe.style.height = "1px";
-    iframe.style.opacity = "0";
-    iframe.style.pointerEvents = "none";
-    document.body.appendChild(iframe);
-  
-    function postToEmbed(payload) {
-      if (!iframe.contentWindow) return;
-      iframe.contentWindow.postMessage(payload, embedOrigin);
-    }
-  
-    function sendInit() {
-      if (initSent) return;
-      initSent = true;
-      const webtransportOrigin =
-        typeof window.__SERVER_PLUGIN_WEBTRANSPORT_ORIGIN__ === "string"
-          ? String(window.__SERVER_PLUGIN_WEBTRANSPORT_ORIGIN__)
-          : null;
-      const defaultWebtransportOrigin =
-        !webtransportOrigin &&
-        typeof location !== "undefined" &&
-        typeof location.hostname === "string" &&
-        location.hostname.endsWith("perchance.org")
-          ? "https://wt0.server-plugin.perchance.org"
-          : null;
-      const webtransportCertHashes =
-        Array.isArray(window.__SERVER_PLUGIN_WEBTRANSPORT_CERT_HASHES__)
-          ? window.__SERVER_PLUGIN_WEBTRANSPORT_CERT_HASHES__
-            .map((entry) => {
-              if (!entry || typeof entry.algorithm !== "string") return null;
-              let value = entry.value;
-              if (value instanceof ArrayBuffer) {
-                value = Array.from(new Uint8Array(value));
-              } else if (ArrayBuffer.isView(value)) {
-                value = Array.from(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-              } else if (value instanceof Uint8Array) {
-                value = Array.from(value);
-              } else if (!Array.isArray(value)) {
-                value = null;
-              }
-              if (!value) return null;
-              return { algorithm: entry.algorithm, value };
-            })
-            .filter(Boolean)
-          : null;
-      const devWebtransportPort =
-        typeof window.__DEV_WEBTRANSPORT_PORT__ === "number"
-          ? window.__DEV_WEBTRANSPORT_PORT__
-          : undefined;
-      postToEmbed({
-        type: "init",
-        universe: universe || undefined,
-        origin: location.origin,
-        devGatewayPort: typeof window.__DEV_GATEWAY_PORT__ === "number" ? window.__DEV_GATEWAY_PORT__ : undefined,
-        devWebtransportPort,
-        webtransportOrigin: webtransportOrigin || defaultWebtransportOrigin || undefined,
-        webtransportCertHashes: webtransportCertHashes || undefined,
-        generatorLastEditTime: window.generatorLastEditTime || null,
-        generatorName: window.generatorName || null,
-      });
-      console.debug(`${debugPrefix} embed init sent`, {
-        embedOrigin,
-        universe: universe || null,
-        webtransportOrigin: webtransportOrigin || defaultWebtransportOrigin || null,
-      });
-    }
-  
-    function flushQueue() {
-      if (!ready) return;
-      while (queue.length) {
-        postToEmbed(queue.shift());
-      }
-    }
-  
-    let loadAttemptStart = Date.now();
-    function resetEmbedSrc() {
-      loadAttemptStart = Date.now();
-      const cacheBust = Math.random().toString(36).slice(2);
-      iframe.src = `${embedOrigin}/embed?__cacheBust=${cacheBust}`;
-      console.debug(`${debugPrefix} embed src reset`, { embedOrigin });
-    }
-  
-    function canPostToEmbed() {
-      if (!iframe.contentWindow) return false;
+    if(document.querySelector("[data-perchance-server-plugin-emulator-warning]")) return;
+
+    const bubble = document.createElement("div");
+    bubble.dataset.perchanceServerPluginEmulatorWarning = "";
+    bubble.setAttribute("role", "status");
+    bubble.style.cssText = `
+      all: initial;
+      color-scheme: light dark;
+      position: fixed;
+      z-index: 2147483647;
+      left: 50%;
+      bottom: max(12px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: max-content;
+      max-width: min(680px, calc(100vw - 24px));
+      padding: 9px 10px 9px 12px;
+      border: 1px solid light-dark(#d8d8dc, #48484f);
+      border-radius: 12px;
+      background: #ffffff;
+      background: light-dark(#ffffff, #252529);
+      color: #29292e;
+      color: light-dark(#29292e, #f2f2f3);
+      box-shadow: 0 5px 22px #00000026;
+      font: 13px/1.4 system-ui, sans-serif;
+      text-align: left;
+    `;
+
+    const text = document.createElement("span");
+    text.append("Note: While you are editing the code, the ");
+    const link = document.createElement("a");
+    link.href = "https://perchance.org/server-plugin";
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "server-plugin";
+    link.style.cssText = `
+      color: inherit;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    `;
+    const emphasis = document.createElement("b");
+    emphasis.textContent = "click the save button";
+    text.append(link, " storage is temporary. You should ", emphasis, " to finalize your code edits before adding important data.");
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Okay";
+    button.style.cssText = `
+      all: initial;
+      color-scheme: light dark;
+      flex: 0 0 auto;
+      box-sizing: border-box;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: #29292e;
+      background: light-dark(#29292e, #f2f2f3);
+      color: #ffffff;
+      color: light-dark(#ffffff, #252529);
+      font: 600 12px/1 system-ui, sans-serif;
+      cursor: pointer;
+    `;
+    button.addEventListener("click", () => {
       try {
-        const href = iframe.contentWindow.location.href;
-        if (href === "about:blank") return false;
+        globalThis.sessionStorage?.setItem(warningDismissKey, String(Date.now() + warningDismissMs));
       } catch {
-        // Cross-origin access throws once navigation starts; safe to postMessage.
+        // Removing the current bubble still works when storage is unavailable.
       }
-      return true;
+      bubble.remove();
+    });
+
+    bubble.append(text, button);
+    (document.body || document.documentElement).append(bubble);
+  };
+
+  if(emulated) showEmulatorStorageWarning();
+
+  // ---- embed tokens ----
+  // Production sockets carry a short-lived token proving the page's whole
+  // frame-ancestor chain is on perchance.org. It is minted by a hidden iframe
+  // to /embed-token-frame, which the server only lets run under perchance
+  // ancestors (CSP frame-ancestors); the token is IP-bound and expires in
+  // five minutes. Off-platform embeds never receive one and the server
+  // closes their sockets with 4403.
+  const EMBED_TOKEN_SERVER_ORIGIN = "https://server-plugin.perchance.org";
+  const EMBED_TOKEN_REFRESH_AGE_MS = 4 * 60 * 1000; // tokens live five minutes
+  const EMBED_TOKEN_TIMEOUT_MS = 8000;
+  const EMBED_TOKEN_CHALLENGE_TIMEOUT_MS = 120000;
+  const EMBED_BLOCKED_CLOSE_CODE = 4403;
+  // Shared with any other copy of the client on this page, so they reuse one
+  // token and one in-flight mint.
+  const embedTokenState = globalThis.__perchanceServerPluginEmbedTokenState ??= {cache:null, inflight:null, warned:false};
+
+  const embedEnforceForced = () => {
+    // Debug flag: opt this browser into server-side enforcement regardless of
+    // the staged rollout percentage. Set localStorage.pspEmbedEnforce = "1"
+    // in the generator iframe origin and reload.
+    try { return globalThis.localStorage?.getItem("pspEmbedEnforce") === "1"; } catch { return false; }
+  };
+
+  const getEmbedToken = () => {
+    const override = globalThis.__pspEmbedTokenOverride;
+    if(typeof override === "string") return Promise.resolve(override || null);
+    if(!document?.createElement || !document.documentElement) return Promise.resolve(null);
+    if(embedTokenState.cache && Date.now() - embedTokenState.cache.mintedAt < EMBED_TOKEN_REFRESH_AGE_MS) {
+      return Promise.resolve(embedTokenState.cache.token);
     }
-  
-    const poll = setInterval(() => {
-      if (!loaded) {
-        if (Date.now() - loadAttemptStart > 30000) resetEmbedSrc();
-        if (canPostToEmbed()) postToEmbed({ type: "ping" });
-      }
-    }, PING_INTERVAL_MS);
-  
-    function onWindowMessage(e) {
-      if (e.source !== iframe.contentWindow) return;
-      if (e.origin !== embedOrigin) return;
-      const msg = e.data || {};
-      if (msg.type === "loaded") {
-        loaded = true;
-        clearInterval(poll);
-        console.debug(`${debugPrefix} embed loaded`, { embedOrigin });
-        sendInit();
-        return;
-      }
-      if (msg.type === "ready") {
-        ready = true;
-        console.debug(`${debugPrefix} embed ready`, { embedOrigin });
-        flushQueue();
-        return;
-      }
-      if (msg.type === "connect_ready") {
-        const pendingReq = pending.get(msg.requestId);
-        if (!pendingReq) return;
-        pending.delete(msg.requestId);
-        pendingReq.resolve(msg);
-        return;
-      }
-      if (msg.type === "connect_error") {
-        const pendingReq = pending.get(msg.requestId);
-        if (!pendingReq) return;
-        pending.delete(msg.requestId);
-        pendingReq.reject(new Error(msg.message || "connect_error"));
-        return;
-      }
-      if (msg.type === "evict") {
-        const world = typeof msg.world === "string" ? msg.world : "";
-        const connState = connections.get(world);
-        if (connState && connState.transport && typeof connState.transport.close === "function") {
-          try {
-            connState.transport.close({ closeCode: 0, reason: msg.reason || "evicted" });
-          } catch {}
-        } else if (world) {
-          postToEmbed({ type: "disconnect", world });
-        }
-        return;
-      }
-      if (msg.type === "token_refresh") {
-        const connState = connections.get(msg.world);
-        if (connState && connState.transport && connState.sendTokenRefresh) {
-          connState.sendTokenRefresh(msg.token, msg.expiry);
-        }
-        return;
-      }
-      if (msg.type === "meta") {
-        const meta = msg.data;
-        const worldLabel = msg.world ? ` world=${msg.world}` : "";
-        if (meta && typeof meta === "object") {
-          const metaType = typeof meta.type === "string" ? meta.type : null;
-          const prefix = `[server-plugin] meta${worldLabel}`;
-          if (metaType === "error") {
-            if (typeof meta.message === "string") console.error(`${prefix}: ${meta.message}`);
-            else console.error(`${prefix}: error`, meta);
-          } else if (metaType && metaType.endsWith("_error")) {
-            console.warn(`${prefix}: ${metaType}`, meta);
-          } else {
-            console.debug(`${prefix}: ${metaType || "meta"}`, meta);
-          }
+    if(embedTokenState.inflight) return embedTokenState.inflight;
+    embedTokenState.inflight = new Promise(resolve => {
+      const iframe = document.createElement("iframe");
+      // Generator pages are served with Document-Isolation-Policy:
+      // isolate-and-credentialless; a credentialless child (this frame needs
+      // no cookies or shared storage) loads cleanly under it.
+      if("credentialless" in iframe) iframe.credentialless = true;
+      iframe.setAttribute("aria-hidden", "true");
+      iframe.tabIndex = -1;
+      iframe.style.cssText = "position:fixed; left:-10000px; top:0; width:1px; height:1px; border:0; visibility:hidden;";
+      let settled = false;
+      let timer = 0;
+      let challengeShown = false;
+      const finish = token => {
+        if(settled) return;
+        settled = true;
+        clearTimeout(timer);
+        globalThis.removeEventListener("message", onMessage);
+        iframe.remove();
+        embedTokenState.inflight = null;
+        if(typeof token === "string" && token) {
+          embedTokenState.cache = {token, mintedAt:Date.now()};
+          resolve(token);
         } else {
-          console.debug(`[server-plugin] meta${worldLabel}`, meta);
-        }
-        return;
-      }
-    }
-  
-    window.addEventListener("message", onWindowMessage);
-  
-    async function connect(worldInput) {
-      const world = normalizeWorld(worldInput);
-      const existing = connections.get(world);
-      if (existing && existing.transport) {
-        return existing.transport;
-      }
-      const requestId = Math.random().toString(36).slice(2);
-      const payload = { type: "connect", world, requestId };
-      if (ready) {
-        postToEmbed(payload);
-      } else {
-        queue.push(payload);
-        if (loaded && !initSent) sendInit();
-      }
-      const response = await new Promise((resolve, reject) => {
-        pending.set(requestId, { resolve, reject });
-      });
-  
-      const webtransportSupported =
-        typeof WebTransport !== "undefined" &&
-        window.__SERVER_PLUGIN_DISABLE_WEBTRANSPORT__ !== true &&
-        !shouldForceWebSocket();
-      let transport = null;
-      let sendTokenRefresh = null;
-  
-      if (webtransportSupported && response.wtUrl) {
-        const options = {};
-        if (response.webtransportCertHashes) {
-          options.serverCertificateHashes = response.webtransportCertHashes;
-        }
-        const wt = new WebTransport(response.wtUrl, options);
-        await wt.ready;
-        const controlStream = await wt.createUnidirectionalStream();
-        const controlWriter = controlStream.getWriter();
-        sendTokenRefresh = async (token, expiry) => {
-          const payload = { type: "token_refresh", token, expiry };
-          const encoded = new TextEncoder().encode(JSON.stringify(payload));
-          const framed = encodeLengthPrefixed(encoded);
-          await controlWriter.write(framed);
-        };
-        transport = wt;
-        transport.__serverPluginTransportKind = "webtransport";
-        transport.__serverPluginSendTokenRefresh = sendTokenRefresh;
-        transport.__serverPluginWorld = world;
-        const cleanup = () => {
-          if (connections.get(world)?.transport === transport) {
-            connections.delete(world);
-            postToEmbed({ type: "disconnect", world });
+          if(!embedTokenState.warned) {
+            embedTokenState.warned = true;
+            console.warn("perchance server-plugin: could not obtain an embed token; if this page is embedded outside perchance.org the server will reject its connections");
           }
-        };
-        transport.closed?.then(cleanup).catch(cleanup);
-      } else if (response.wsUrl) {
-        const wsTransport = createWsTransport({
-          url: response.wsUrl,
-          token: response.token,
-          world,
-          onClose: () => {
-            if (connections.get(world)?.transport === wsTransport) {
-              connections.delete(world);
-              postToEmbed({ type: "disconnect", world });
-            }
+          resolve(null);
+        }
+      };
+      const onMessage = event => {
+        if(event.source !== iframe.contentWindow) return;
+        if(event.origin !== EMBED_TOKEN_SERVER_ORIGIN) return;
+        const data = event.data;
+        if(data && typeof data.__pspEmbedToken === "string") {
+          finish(data.__pspEmbedToken);
+        } else if(data && data.__pspEmbedTokenChallenge && !challengeShown) {
+          // A Turnstile challenge may need user interaction: reveal the frame
+          // as a small centered bubble and allow much more time.
+          challengeShown = true;
+          iframe.style.cssText = `
+            position: fixed;
+            z-index: 2147483647;
+            left: 50%;
+            bottom: max(12px, env(safe-area-inset-bottom));
+            transform: translateX(-50%);
+            width: min(320px, calc(100vw - 24px));
+            height: 84px;
+            border: 1px solid light-dark(#d8d8dc, #48484f);
+            border-radius: 12px;
+            background: light-dark(#ffffff, #252529);
+            box-shadow: 0 5px 22px #00000026;
+          `;
+          iframe.removeAttribute("aria-hidden");
+          clearTimeout(timer);
+          timer = setTimeout(() => finish(null), EMBED_TOKEN_CHALLENGE_TIMEOUT_MS);
+        } else if(data && data.__pspEmbedTokenError) {
+          finish(null);
+        }
+      };
+      timer = setTimeout(() => finish(null), EMBED_TOKEN_TIMEOUT_MS);
+      globalThis.addEventListener("message", onMessage);
+      iframe.src = `${EMBED_TOKEN_SERVER_ORIGIN}/embed-token-frame?generator=${encodedName}`;
+      (document.body || document.documentElement).append(iframe);
+    });
+    return embedTokenState.inflight;
+  };
+
+  const showEmbedBlockedNotice = () => {
+    if(!document?.createElement || !document.documentElement) return;
+    if(document.querySelector("[data-perchance-server-plugin-embed-blocked]")) return;
+    const bubble = document.createElement("div");
+    bubble.dataset.perchanceServerPluginEmbedBlocked = "";
+    bubble.setAttribute("role", "status");
+    bubble.style.cssText = `
+      all: initial;
+      color-scheme: light dark;
+      position: fixed;
+      z-index: 2147483647;
+      left: 50%;
+      bottom: max(12px, env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      width: max-content;
+      max-width: min(680px, calc(100vw - 24px));
+      padding: 9px 10px 9px 12px;
+      border: 1px solid light-dark(#d8d8dc, #48484f);
+      border-radius: 12px;
+      background: #ffffff;
+      background: light-dark(#ffffff, #252529);
+      color: #29292e;
+      color: light-dark(#29292e, #f2f2f3);
+      box-shadow: 0 5px 22px #00000026;
+      font: 13px/1.4 system-ui, sans-serif;
+      text-align: left;
+    `;
+    const text = document.createElement("span");
+    text.append("This page's multiplayer/server features only work on perchance.org. ");
+    const link = document.createElement("a");
+    link.href = `https://perchance.org/${encodedName}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Open on perchance.org";
+    link.style.cssText = `
+      color: inherit;
+      font-weight: 600;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    `;
+    text.append(link);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Okay";
+    button.style.cssText = `
+      all: initial;
+      color-scheme: light dark;
+      flex: 0 0 auto;
+      box-sizing: border-box;
+      padding: 6px 9px;
+      border-radius: 999px;
+      background: #29292e;
+      background: light-dark(#29292e, #f2f2f3);
+      color: #ffffff;
+      color: light-dark(#ffffff, #252529);
+      font: 600 12px/1 system-ui, sans-serif;
+      cursor: pointer;
+    `;
+    button.addEventListener("click", () => bubble.remove());
+    bubble.append(text, button);
+    (document.body || document.documentElement).append(bubble);
+  };
+
+  class EmulatedServerSocket extends EventTarget {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+    CONNECTING = 0;
+    OPEN = 1;
+    CLOSING = 2;
+    CLOSED = 3;
+    readyState = 0;
+    bufferedAmount = 0;
+    binaryType = "blob";
+    protocol = "";
+    extensions = "";
+    onopen = null;
+    onmessage = null;
+    onerror = null;
+    onclose = null;
+    #transport = null;
+    #sendChain = Promise.resolve();
+
+    constructor(url, generatorName, source, sourceHash) {
+      super();
+      this.url = url;
+      for(const type of ["open", "message", "error", "close"]) {
+        this.addEventListener(type, event => {
+          const handler = this[`on${type}`];
+          if(typeof handler === "function") handler.call(this, event);
+        });
+      }
+      const options = globalThis.__perchanceServerPluginEmulatorOptions;
+      import("https://server-plugin.perchance.org/emulator.js?v=2026-07-21-1").then(module => {
+        if(this.readyState >= EmulatedServerSocket.CLOSING) return;
+        module.connectEmulatedSocket({
+          generatorName,
+          source,
+          sourceHash,
+          options,
+          peer: {
+            attachTransport: transport => { this.#transport = transport; },
+            open: () => this.#open(),
+            message: (kind, data) => this.#message(kind, data),
+            sendAck: bytes => { this.bufferedAmount = Math.max(0, this.bufferedAmount - bytes); },
+            close: (code, reason, wasClean) => this.#closed(code, reason, wasClean),
+            fail: message => this.#fail(message),
           },
         });
-        await wsTransport.ready;
-        sendTokenRefresh = (token, expiry) => wsTransport.__updateToken(token, expiry);
-        transport = wsTransport;
-        transport.__serverPluginTransportKind = "ws";
-      } else if (!transport) {
-        throw new Error("no_transport_url");
-      }
-  
-      connections.set(world, { transport, sendTokenRefresh });
-      if (sendTokenRefresh && response.token) {
-        sendTokenRefresh(response.token, response.expiry || response.tokenExpiry || null);
-      }
-      return transport;
+      }).catch(error => this.#fail(String(error?.stack || error)));
     }
-  
-    return { connect };
+
+    #open() {
+      if(this.readyState !== EmulatedServerSocket.CONNECTING) return;
+      this.readyState = EmulatedServerSocket.OPEN;
+      this.dispatchEvent(new Event("open"));
+    }
+    #message(kind, data) {
+      if(this.readyState === EmulatedServerSocket.CLOSED) return;
+      let value = data;
+      if(kind === 2) {
+        const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+        const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        value = this.binaryType === "arraybuffer" ? buffer : new Blob([buffer]);
+      }
+      this.dispatchEvent(new MessageEvent("message", {data:value, origin:"", lastEventId:""}));
+    }
+    #fail(message) {
+      if(this.readyState === EmulatedServerSocket.CLOSED) return;
+      this.dispatchEvent(new ErrorEvent("error", {message}));
+      this.#closed(1011, "local server emulator failed", false);
+    }
+    #closed(code, reason, wasClean) {
+      if(this.readyState === EmulatedServerSocket.CLOSED) return;
+      this.readyState = EmulatedServerSocket.CLOSED;
+      this.dispatchEvent(new CloseEvent("close", {code, reason, wasClean}));
+    }
+    send(data) {
+      if(this.readyState === EmulatedServerSocket.CONNECTING) throw new DOMException("WebSocket is still in CONNECTING state", "InvalidStateError");
+      if(this.readyState !== EmulatedServerSocket.OPEN) return;
+      let kind, payload, length;
+      if(typeof data === "string") {
+        kind = 1; payload = data; length = encoder.encode(data).byteLength;
+      } else if(data instanceof ArrayBuffer) {
+        kind = 2; payload = new Uint8Array(data.slice(0)); length = payload.byteLength;
+      } else if(ArrayBuffer.isView(data)) {
+        kind = 2; payload = new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)); length = payload.byteLength;
+      } else if(typeof Blob !== "undefined" && data instanceof Blob) {
+        length = data.size;
+        this.bufferedAmount += length;
+        this.#sendChain = this.#sendChain.then(async () => {
+          const bytes = new Uint8Array(await data.arrayBuffer());
+          this.#transport.send(2, bytes);
+        });
+        return;
+      } else {
+        throw new TypeError("WebSocket.send expects a string, Blob, ArrayBuffer, or ArrayBuffer view");
+      }
+      this.bufferedAmount += length;
+      this.#sendChain = this.#sendChain.then(() => this.#transport.send(kind, payload));
+    }
+    close(code=1000, reason="") {
+      if(code !== 1000 && !(code >= 3000 && code <= 4999)) throw new DOMException("Invalid WebSocket close code", "InvalidAccessError");
+      reason = String(reason);
+      if(encoder.encode(reason).byteLength > 123) throw new DOMException("WebSocket close reason exceeds 123 UTF-8 bytes", "SyntaxError");
+      if(this.readyState >= EmulatedServerSocket.CLOSING) return;
+      if(this.readyState === EmulatedServerSocket.CONNECTING) {
+        this.readyState = EmulatedServerSocket.CLOSING;
+        this.#transport?.abort();
+        queueMicrotask(() => {
+          if(this.readyState === EmulatedServerSocket.CLOSED) return;
+          this.dispatchEvent(new ErrorEvent("error", {message:"WebSocket was closed before the connection was established"}));
+          this.#closed(1006, "", false);
+        });
+        return;
+      }
+      this.readyState = EmulatedServerSocket.CLOSING;
+      this.#sendChain = this.#sendChain.then(() => this.#transport.close(code, reason));
+    }
   }
-  
-  function server(world) {
-    // Validate before creating the manager/iframe.
-    normalizeWorld(world);
-    return getManager().connect(world);
+
+  // WebSocket-compatible facade over a native production socket. The native
+  // socket can only be constructed once the (asynchronous) embed token is
+  // available, so this presents the standard CONNECTING state meanwhile. It
+  // mirrors EmulatedServerSocket's surface: every generator is developed
+  // against that facade in the unsaved editor, so compatibility with it is
+  // the real-world contract.
+  class ProductionServerSocket extends EventTarget {
+    static CONNECTING = 0;
+    static OPEN = 1;
+    static CLOSING = 2;
+    static CLOSED = 3;
+    CONNECTING = 0;
+    OPEN = 1;
+    CLOSING = 2;
+    CLOSED = 3;
+    readyState = 0;
+    binaryType = "blob";
+    protocol = "";
+    extensions = "";
+    onopen = null;
+    onmessage = null;
+    onerror = null;
+    onclose = null;
+    #ws = null;
+
+    constructor(url, tokenPromise) {
+      super();
+      this.url = url;
+      for(const type of ["open", "message", "error", "close"]) {
+        this.addEventListener(type, event => {
+          const handler = this[`on${type}`];
+          if(typeof handler === "function") handler.call(this, event);
+        });
+      }
+      tokenPromise.then(token => {
+        if(this.readyState >= ProductionServerSocket.CLOSING) return;
+        let target = url;
+        if(token) target += `&t=${encodeURIComponent(token)}`;
+        if(embedEnforceForced()) target += "&tenforce=1";
+        let ws;
+        try { ws = new WebSocket(target); }
+        catch(error) { return this.#fail(String(error?.message || error)); }
+        ws.binaryType = "arraybuffer";
+        this.#ws = ws;
+        ws.addEventListener("open", () => {
+          if(this.readyState !== ProductionServerSocket.CONNECTING) return;
+          this.protocol = ws.protocol;
+          this.extensions = ws.extensions;
+          this.readyState = ProductionServerSocket.OPEN;
+          this.dispatchEvent(new Event("open"));
+        });
+        ws.addEventListener("message", event => {
+          if(this.readyState === ProductionServerSocket.CLOSED) return;
+          let value = event.data;
+          if(value instanceof ArrayBuffer && this.binaryType !== "arraybuffer") value = new Blob([value]);
+          this.dispatchEvent(new MessageEvent("message", {data:value, origin:event.origin, lastEventId:""}));
+        });
+        ws.addEventListener("error", () => {
+          if(this.readyState === ProductionServerSocket.CLOSED) return;
+          this.dispatchEvent(new Event("error"));
+        });
+        ws.addEventListener("close", event => {
+          if(event.code === EMBED_BLOCKED_CLOSE_CODE) showEmbedBlockedNotice();
+          this.#closed(event.code, event.reason, event.wasClean);
+        });
+      });
+    }
+
+    get bufferedAmount() {
+      return this.#ws ? this.#ws.bufferedAmount : 0;
+    }
+    #fail(message) {
+      if(this.readyState === ProductionServerSocket.CLOSED) return;
+      this.dispatchEvent(new ErrorEvent("error", {message}));
+      this.#closed(1006, "", false);
+    }
+    #closed(code, reason, wasClean) {
+      if(this.readyState === ProductionServerSocket.CLOSED) return;
+      this.readyState = ProductionServerSocket.CLOSED;
+      this.dispatchEvent(new CloseEvent("close", {code, reason, wasClean}));
+    }
+    send(data) {
+      if(this.readyState === ProductionServerSocket.CONNECTING) throw new DOMException("WebSocket is still in CONNECTING state", "InvalidStateError");
+      if(this.readyState !== ProductionServerSocket.OPEN) return;
+      this.#ws.send(data);
+    }
+    close(code=1000, reason="") {
+      if(code !== 1000 && !(code >= 3000 && code <= 4999)) throw new DOMException("Invalid WebSocket close code", "InvalidAccessError");
+      reason = String(reason);
+      if(encoder.encode(reason).byteLength > 123) throw new DOMException("WebSocket close reason exceeds 123 UTF-8 bytes", "SyntaxError");
+      if(this.readyState >= ProductionServerSocket.CLOSING) return;
+      if(this.readyState === ProductionServerSocket.CONNECTING) {
+        this.readyState = ProductionServerSocket.CLOSING;
+        // Abort a native socket that is still connecting; if none exists yet,
+        // the token continuation sees CLOSING and never creates one.
+        try { this.#ws?.close(); } catch {}
+        queueMicrotask(() => {
+          if(this.readyState === ProductionServerSocket.CLOSED) return;
+          this.dispatchEvent(new ErrorEvent("error", {message:"WebSocket was closed before the connection was established"}));
+          this.#closed(1006, "", false);
+        });
+        return;
+      }
+      this.readyState = ProductionServerSocket.CLOSING;
+      this.#ws.close(code, reason);
+    }
   }
-  return server; 
 
+  const socket = emulated
+    ? new EmulatedServerSocket(url, globalThis.generatorName, code, hash)
+    : new ProductionServerSocket(url, getEmbedToken());
+  const sendRaw = data => socket.send(data);
+  socket.binaryType = "arraybuffer";
 
+  function rpcError(message, name="ServerSocketRpcError") {
+    const error = new Error(message);
+    error.name = name;
+    return error;
+  }
+  function responseHeader(data) {
+    if(typeof data !== "string" || !data.startsWith(RPC_RESPONSE_PREFIX)) return null;
+    const rest = data.slice(RPC_RESPONSE_PREFIX.length);
+    const split = rest.indexOf(":");
+    if(split < 1) return null;
+    const idText = rest.slice(0, split);
+    const kind = rest.slice(split + 1);
+    if(!/^[0-9]+$/.test(idText) || !["t", "b", "e"].includes(kind)) return null;
+    const id = Number(idText);
+    return Number.isSafeInteger(id) && id > 0 && id <= 0xffffffff ? {id, kind} : null;
+  }
+  function requestFrame(id, method, data) {
+    const methodBytes = encoder.encode(method);
+    if(methodBytes.byteLength === 0 || methodBytes.byteLength > MAX_RPC_METHOD_BYTES || method.startsWith("@")) {
+      throw new TypeError(`invalid RPC method; use 1-${MAX_RPC_METHOD_BYTES} UTF-8 bytes and do not start with '@'`);
+    }
+    let kind;
+    let payload;
+    if(typeof data === "string") {
+      kind = 1;
+      payload = encoder.encode(data);
+    } else if(data instanceof ArrayBuffer) {
+      kind = 2;
+      payload = new Uint8Array(data);
+    } else if(ArrayBuffer.isView(data)) {
+      kind = 2;
+      payload = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    } else {
+      throw new TypeError("socket.rpc methods expect a string, ArrayBuffer, or ArrayBuffer view");
+    }
+    if(payload.byteLength + methodBytes.byteLength > MAX_RPC_PAYLOAD_BYTES) throw new TypeError("RPC payload is too large");
+    const frame = new Uint8Array(RPC_HEADER_BYTES + methodBytes.byteLength + payload.byteLength);
+    frame.set(RPC_REQUEST_MAGIC);
+    frame[8] = kind;
+    const view = new DataView(frame.buffer);
+    view.setUint32(9, id);
+    view.setUint16(13, methodBytes.byteLength);
+    frame.set(methodBytes, RPC_HEADER_BYTES);
+    frame.set(payload, RPC_HEADER_BYTES + methodBytes.byteLength);
+    return frame;
+  }
+  function binaryResult(data) {
+    if(data instanceof ArrayBuffer) return Promise.resolve(data);
+    if(ArrayBuffer.isView(data)) return Promise.resolve(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+    if(typeof Blob !== "undefined" && data instanceof Blob) return data.arrayBuffer();
+    return Promise.reject(rpcError("invalid binary RPC response", "ServerSocketRpcProtocolError"));
+  }
 
+  let openedResolve;
+  let openedReject;
+  let closedResolve;
+  let didOpen = false;
+  let nextId = 1;
+  let expectedResponse = null;
+  let receiveChain = Promise.resolve();
+  const pending = new Map();
+  const opened = new Promise((resolve, reject) => { openedResolve = resolve; openedReject = reject; });
+  opened.catch(() => {});
+  const closed = new Promise(resolve => { closedResolve = resolve; });
 
+  function settle(id, error, value) {
+    const call = pending.get(id);
+    if(!call) return;
+    pending.delete(id);
+    if(error) call.reject(error); else call.resolve(value);
+  }
+  function rejectAll(message) {
+    const error = rpcError(message, "ServerSocketRpcDisconnectedError");
+    for(const id of [...pending.keys()]) settle(id, error);
+    expectedResponse = null;
+  }
+  function protocolFailure(id, message) {
+    settle(id, rpcError(message, "ServerSocketRpcProtocolError"));
+    try { socket.close(1002, "invalid RPC response"); } catch {}
+  }
 
+  socket.addEventListener("message", event => {
+    if(expectedResponse !== null) {
+      event.stopImmediatePropagation();
+      const response = expectedResponse;
+      expectedResponse = null;
+      const data = event.data;
+      receiveChain = receiveChain.then(async () => {
+        if(response.kind === "t" || response.kind === "e") {
+          if(typeof data !== "string") return protocolFailure(response.id, "invalid text RPC response");
+          if(response.kind === "e") settle(response.id, rpcError(data || "server RPC failed", "ServerSocketRpcRemoteError"));
+          else settle(response.id, null, data);
+          return;
+        }
+        try { settle(response.id, null, await binaryResult(data)); }
+        catch(error) { protocolFailure(response.id, error.message); }
+      });
+      return;
+    }
+    const header = responseHeader(event.data);
+    if(header !== null) {
+      event.stopImmediatePropagation();
+      expectedResponse = header;
+    }
+  }, {capture:true});
+
+  socket.addEventListener("open", () => {
+    didOpen = true;
+    openedResolve(socket);
+  }, {once:true});
+  socket.addEventListener("close", event => {
+    if(!didOpen) openedReject(rpcError(`WebSocket closed before opening (code ${event.code})`, "ServerSocketOpenError"));
+    rejectAll(`WebSocket closed (code ${event.code})`);
+    closedResolve(event);
+  }, {once:true});
+
+  function callRpc(method, args) {
+    if(args.length !== 1) throw new TypeError(`socket.rpc.${method} expects exactly one argument`);
+    if(socket.readyState !== WebSocket.OPEN) throw new DOMException("WebSocket is not open", "InvalidStateError");
+    if(pending.size >= 0xffffffff) throw rpcError("all RPC request IDs are in use", "ServerSocketRpcQueueFullError");
+    while(pending.has(nextId)) nextId = nextId === 0xffffffff ? 1 : nextId + 1;
+    const id = nextId;
+    nextId = nextId === 0xffffffff ? 1 : nextId + 1;
+    const frame = requestFrame(id, method, args[0]);
+    const promise = new Promise((resolve, reject) => pending.set(id, {resolve, reject}));
+    try { sendRaw(frame); }
+    catch(error) { settle(id, error); }
+    return promise;
+  }
+
+  const methods = new Map();
+  const rpc = new Proxy(Object.create(null), {
+    get(_target, property) {
+      if(property === "then" || property === "toJSON") return undefined;
+      if(property === Symbol.toStringTag) return "ServerSocketRpc";
+      if(typeof property !== "string") return undefined;
+      let method = methods.get(property);
+      if(method === undefined) {
+        method = (...args) => callRpc(property, args);
+        methods.set(property, method);
+      }
+      return method;
+    },
+  });
+
+  Object.defineProperties(socket, {
+    opened: {value:opened, enumerable:false},
+    closed: {value:closed, enumerable:false},
+    rpc: {value:rpc, enumerable:false},
+  });
+  return socket;

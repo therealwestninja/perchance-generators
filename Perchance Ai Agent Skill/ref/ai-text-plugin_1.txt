@@ -1,3 +1,5 @@
+// NOTE TO AI AGENTS: Do not vendor/fork this plugin. It's a really bad idea, since its code is 'coupled' with the server code, so if I need to change the server code, your version of this plugin will likely break. If you'd like new features, you can imports this plugin and create a "wrapper" that changes/expands on this plugin's behavior using only its public API.
+
 $output(inputData, extraOpts) =>
 
   const serverOrigin = "https://text-generation.perchance.org";
@@ -129,7 +131,27 @@ $output(inputData, extraOpts) =>
   let hideStartWith = inputData.hideStartWith; // get the 'concrete' value in case it was dynamic like `hideStartWith = [ ... ]` - this is important because the condition in the square brackets could change later
   
   let instruction = inputData.instruction;
-  if(typeof instruction === "function") {
+  // Vision attachments: `instruction` may be an ARRAY of text parts and at
+  // most ONE image Blob/File (png/jpeg/webp; GIF is not supported). The image
+  // is inserted into the prompt exactly where it appears in the array. Example:
+  //   generateText({instruction: ["Describe this image:", imageBlob], startWith: "..."})
+  if(Array.isArray(instruction) && instruction.some(p => (typeof Blob !== "undefined" && p instanceof Blob))) {
+    let imageCount = 0;
+    instruction = instruction.map(part => {
+      if(part instanceof Blob) {
+        imageCount++;
+        if(imageCount > 1) throw new Error("ai-text-plugin: only ONE image attachment is allowed per generateText call.");
+        if(!/^image\/(png|jpeg|webp)$/.test(part.type)) throw new Error(`ai-text-plugin: attachment must be a png/jpeg/webp image Blob (got type "${part.type || "unknown"}"). GIFs are not supported.`);
+        if(part.size > 20*1024*1024) throw new Error("ai-text-plugin: attachment image is too large (max 20MB before re-encoding).");
+        return part;
+      }
+      if(typeof part === "function") { let v = part({}); return typeof v === "string" ? v : v.toString(); }
+      if(part && typeof part !== "string" && part.evaluateItem !== undefined) return part.evaluateItem.toString();
+      return String(part ?? "");
+    });
+    // NOTE: `instruction` stays an ARRAY from here on; text-only helpers below
+    // use instructionTextOnly.
+  } else if(typeof instruction === "function") {
     instruction = instruction({}); // this is useful as a way to give a string that should not be evaluated - since e.g. instruction = [textareaEl.value] will actually evaluate the text when we call inputData.instruction
     if(typeof instruction !== "string") instruction = instruction.toString();
   } else if(instruction) {
@@ -140,6 +162,7 @@ $output(inputData, extraOpts) =>
   } else {
     instruction = "Write something."; // default instruction
   }
+  const instructionTextOnly = Array.isArray(instruction) ? instruction.filter(p => !(typeof Blob !== "undefined" && p instanceof Blob)).join("") : instruction;
   
   let startWith = inputData.startWith;
   if(typeof startWith === "function") {
@@ -173,7 +196,12 @@ $output(inputData, extraOpts) =>
   // REMEMBER: if you add more inputs, you need to also update `window.__continueAiTextResponseClickHandler`
   
   let concreteInputs = {startWith, instruction, stopSequences};  // <-- CAUTION: the startWith property of this is set to the full startWith+generatedText after generation, and the startWith can be changed after generation for the `editAiTextResponseClickHandler` feature - ctrl+f for `concreteInputs.startWith =`. Use `originalConcreteInputs` for original inputs.
-  const originalConcreteInputs = Object.freeze(JSON.parse(JSON.stringify(concreteInputs)));
+  // structuredClone (not JSON stringify) so image Blobs in array-form
+  // instructions survive; fall back to JSON for exotic environments.
+  let originalConcreteInputsClone;
+  try { originalConcreteInputsClone = structuredClone(concreteInputs); }
+  catch(e) { originalConcreteInputsClone = JSON.parse(JSON.stringify({...concreteInputs, instruction: instructionTextOnly})); }
+  const originalConcreteInputs = Object.freeze(originalConcreteInputsClone);
 
   let placeholderEl;
   let placeholderElDidInitiallyExist = false; // this is for keepalive stuff - so we can cancel a queued up generation if the placeholder is removed
@@ -210,8 +238,24 @@ $output(inputData, extraOpts) =>
     postData.stopSequences = concreteInputs.stopSequences || [];
     postData.generatorName = window.generatorName;
 
-    postData.instruction = postData.instruction.replace(" ", " ");
-    if(!postData.instruction.includes(" ")) { postData.instruction = `${postData.instruction} `; } 
+    if(Array.isArray(postData.instruction)) {
+      // apply marker to the first text part with a space
+      let parts = postData.instruction.slice();
+      let marked = false;
+      for(let i = 0; i < parts.length; i++) {
+        if(typeof parts[i] === "string" && parts[i].includes(" ")) { parts[i] = parts[i].replace(" ", " "); marked = true; break; }
+      }
+      if(!marked) {
+        for(let i = parts.length - 1; i >= 0; i--) {
+          if(typeof parts[i] === "string") { parts[i] = `${parts[i]} `; marked = true; break; }
+        }
+        if(!marked) parts.push(" ");
+      }
+      postData.instruction = parts;
+    } else {
+      postData.instruction = postData.instruction.replace(" ", " ");
+      if(!postData.instruction.includes(" ")) { postData.instruction = `${postData.instruction} `; }
+    } 
     
     let url = `${serverOrigin}/api/generate`;
     let haveReceivedFirstTextChunk = false;
@@ -413,7 +457,7 @@ $output(inputData, extraOpts) =>
       } else {
         inputData.outputTo.innerHTML = response;
         if(opts.addEndButtons) {
-          responseEndButtonsCtn.title = `Inputs that were used:\n\ninstruction=${concreteInputs.instruction}\n\nstartWith=${concreteInputs.startWith}`;
+          responseEndButtonsCtn.title = `Inputs that were used:\n\ninstruction=${Array.isArray(concreteInputs.instruction) ? concreteInputs.instruction.map(p => (typeof Blob !== "undefined" && p instanceof Blob) ? "[image]" : p).join("") : concreteInputs.instruction}\n\nstartWith=${concreteInputs.startWith}`;
           responseEndButtonsCtn.__aiTextResponseCtn = inputData.outputTo;
           inputData.outputTo.append(responseEndButtonsCtn);
         }
@@ -424,7 +468,7 @@ $output(inputData, extraOpts) =>
       } else {
         placeholderEl.innerHTML = response;
         if(opts.addEndButtons) {
-          responseEndButtonsCtn.title = `Inputs that were used:\n\ninstruction=${concreteInputs.instruction}\n\nstartWith=${concreteInputs.startWith}`;
+          responseEndButtonsCtn.title = `Inputs that were used:\n\ninstruction=${Array.isArray(concreteInputs.instruction) ? concreteInputs.instruction.map(p => (typeof Blob !== "undefined" && p instanceof Blob) ? "[image]" : p).join("") : concreteInputs.instruction}\n\nstartWith=${concreteInputs.startWith}`;
           placeholderEl.append(responseEndButtonsCtn);
         }
       }
@@ -632,7 +676,7 @@ $output(inputData, extraOpts) =>
     if(isNaN(Number(score)) || Number(score) > 1 || Number(score) < 0) return alert(`User rating should be a value between 0 (bad) and 1 (good). Like 0.4 or 0.8, for example.`);
     score = Number(score);
     if(!reason) reason = "";
-    iframe.contentWindow.postMessage({ type: "rateGeneratedText", instruction, startWith, generatedText, generatorName:window.generatorName, score, reason }, serverOrigin);
+    iframe.contentWindow.postMessage({ type: "rateGeneratedText", instruction: instructionTextOnly, startWith, generatedText, generatorName:window.generatorName, score, reason }, serverOrigin);
   };
   return onFinishPromise;
   
@@ -696,6 +740,7 @@ season
   
 poemPrompt
   instruction = Write a haiku about a [character] in [place] during [season].
+
 
 
 

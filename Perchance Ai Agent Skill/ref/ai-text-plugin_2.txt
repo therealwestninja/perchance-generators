@@ -85,7 +85,7 @@ marioAffirmationsPrompt
   <p><b>Prompt Options:</b></p>
   <p>You can see a bunch of the options below at play in the example generators listed above, and in <a href="https://perchance.org/ai-text-plugin-demo" target="_blank">this sandbox demo</a> made by <a href="https://lemmy.world/u/wthit56" target="_blank">wthit56</a>.</p>
 	<ul>
-    <li><code style="font-weight:bold;">instruction</code> - Your instruction to the AI on what to write.</li>
+    <li><code style="font-weight:bold;">instruction</code> - Your instruction to the AI on what to write. Can be an array of parts, and one of those parts can be a png/jpeg/webp blob - the others must be strings/text. For example: <code>\["Describe this image:", imageBlob\]</code></li>
     <li><code style="font-weight:bold;">startWith</code> - The text that you want the AI's writing to start with.</li>
     <li><code style="font-weight:bold;">stopSequences</code> - The AI will stop writing "naturally" when it thinks it's finished, but you can use <code>stopSequences</code> to provide a list of words/phrases that should make the AI stop if it writes them.</li>
     <li><code style="font-weight:bold;">hideStartWith</code> - set this equal to <code>true</code> if you don't want the <code>startWith</code> text that you specified to actually get displayed. I.e. only the text <i>after</i> that will get displayed. You could also use a custom <code>render(data)</code> function (explained below) to achieve this.</li>
