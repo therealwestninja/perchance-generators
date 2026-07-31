@@ -1,0 +1,29 @@
+// Perchance's Mod config
+
+kv = {import:kv-plugin}
+commentsPlugin = {import:comments-plugin}
+uploadPlugin = {import:upload-plugin}
+createServerSocket = {import:server-plugin}
+
+$meta
+  title = Perchance's Mod
+  description = A physics sandbox game inspired by a certain sandbox. Spawn props, fling them with the gravity gun, and build chaos.
+  tags = sandbox, physics, game, garrysmod
+
+menuTitle = Perchance's Mod
+
+version = v0.4.6 something
+
+changelog
+  v0.4.6 - i dont actually know what to put here anymore
+  
+menuItems
+  New Game
+  Load Game
+  Options
+  Addons
+  Quit
+
+maps
+  pm_baseplate
+  custom_bsp

@@ -1,0 +1,8 @@
+$meta
+  title = Minecraft Clone Multiplayer
+  description = A massive multiplayer voxel sandbox. Explore a single shared infinite world with other players. Mine, build, and survive together.
+  image = https://user.uploads.dev/file/0d15d9ddf715132c4a74b5588a248e89.jpg
+  tags = minecraft, voxel, sandbox, 3d, blocks, multiplayer, game
+
+createServerSocket = {import:server-plugin}
+superFetch = {import:super-fetch-plugin}
