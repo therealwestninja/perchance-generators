@@ -1,0 +1,488 @@
+// Disclaimer: https://perchance.org/fur-ai contains heavy community contributions.
+// While private or personal use is permitted, public cloning or removal of credits is strictly discouraged.
+// G2G (Generator-to-Generator) friendly: Open to networking and partnerships. Got ideas or feedback? Leave a comment in this generator's comment section, or drop a note here: https://tally.so/r/mY2kKz
+
+generateText = {import:ai-text-plugin}
+textToImagePlugin = {import:text-to-image-plugin}
+upload = {import:upload-plugin}
+dynamicImport = {import:dynamic-import-plugin}
+jail = {import:furry-banlist} 
+
+
+$meta
+  title = FurAI
+  description = C.AI-style AI chat, Janitor-like freedom, and SillyTavern-inspired customization. Built for roleplay, visual novels, group chats, AI stories, furry characters, images, and video.
+  image = https://user.uploads.dev/file/126784a633b2f9238d936b2b0216bba4.webp
+  tags = furry, AI chat, AI roleplay, furry roleplay, character chat, group chat, visual novel, AI story generator, character creator, lorebook, AI image generator, AI video generator, FLUX, free, unlimited, no sign-up, furry community, C.AI alternative, Janitor AI alternative, SillyTavern alternative
+  header 
+    mode = minimal // VN mode needs room and ai chat button there will confuse first time perchance users
+
+
+galleryOptions
+  gallery = true
+  sort = recent
+  adaptiveHeight = true
+  style = background-color: transparent;
+  contentFilter = G
+  bannedUsers = [jail.bannedGalleryList] 
+  bannedPromptPhrases = [jail.bannedPromptPhrases]
+  bannedNegativePromptPhrases = [jail.bannedNegativePromptPhrases]
+  customButton
+    emoji = 💬︎
+    onClick(data) =>
+      openFuraiGalleryImageComments(data)
+      
+  customButton2
+    emoji = ➕︎
+    onClick(data) =>
+      saveFuraiGalleryImageToConceptBoard(data)
+
+saveFuraiGalleryImageToConceptBoard(data) =>
+  if(!data || !data.imageUrl) return
+
+  const save = window.saveFuraiGalleryPostToConceptBoard
+
+  if(typeof save !== "function") {
+    console.error("FurAI gallery Concept Board saver is unavailable.")
+    return
+  }
+
+  Promise.resolve(save(data)).catch(error => {
+    console.error("Could not save gallery image to Concept Board:", error)
+  })
+
+ensureFuraiGalleryFullscreenStyle() =>
+  if(document.getElementById("furaiGalleryFullscreenStyle")) return
+
+  const style = document.createElement("style")
+  style.id = "furaiGalleryFullscreenStyle"
+  style.textContent = `
+    .furai-gallery-fullscreen {
+      position:fixed;
+      inset:0;
+      z-index:100000;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+      background:rgba(0,0,0,.9);
+      user-select:none;
+    }
+
+    .furai-gallery-fullscreen-image {
+      --furai-gallery-zoom-x:50%;
+      --furai-gallery-zoom-y:50%;
+      max-width:90vw;
+      max-height:90vh;
+      width:auto;
+      height:auto;
+      object-fit:contain;
+      border-radius:4px;
+      box-shadow:0 0 20px #000;
+      cursor:zoom-in;
+      transform:scale(1);
+      transform-origin:var(--furai-gallery-zoom-x) var(--furai-gallery-zoom-y);
+      transition:transform .18s ease-out;
+      will-change:transform;
+      touch-action:manipulation;
+      -webkit-user-drag:none;
+    }
+
+    .furai-gallery-fullscreen-image.is-secondary-zoomed {
+      cursor:zoom-out;
+      transform:scale(2);
+    }
+
+    .furai-gallery-fullscreen-close {
+      position:absolute;
+      top:12px;
+      right:16px;
+      z-index:2;
+      border:0 !important;
+      padding:0;
+      background:transparent !important;
+      color:#fff !important;
+      -webkit-text-fill-color:#fff !important;
+      text-shadow:0 1px 4px rgba(0,0,0,.85);
+      cursor:pointer;
+      font:32px/1 sans-serif;
+      opacity:.92;
+    }
+
+    .furai-gallery-fullscreen-close:hover,
+    .furai-gallery-fullscreen-close:focus-visible {
+      color:#fff !important;
+      -webkit-text-fill-color:#fff !important;
+      opacity:1;
+    }
+  `
+  document.head.appendChild(style)
+
+resetFuraiGalleryFullscreenZoom(overlay) =>
+  const img = overlay?.querySelector("[data-furai-gallery-fullscreen-image]")
+  if(!img) return
+
+  img.classList.remove("is-secondary-zoomed")
+  img.style.setProperty("--furai-gallery-zoom-x", "50%")
+  img.style.setProperty("--furai-gallery-zoom-y", "50%")
+  img.setAttribute("aria-pressed", "false")
+  img.title = "Click to zoom to 200%"
+
+closeFuraiGalleryFullscreen() =>
+  const overlay = window._furaiGalleryFullscreenOverlay
+  if(!overlay) return
+
+  resetFuraiGalleryFullscreenZoom(overlay)
+  overlay.style.display = "none"
+
+showImageFullscreen(imageUrl) =>
+  const cleanUrl = String(imageUrl || "").trim()
+  if(!cleanUrl) return
+
+  ensureFuraiGalleryFullscreenStyle()
+
+  let overlay = window._furaiGalleryFullscreenOverlay
+
+  if(!overlay) {
+    overlay = document.createElement("div")
+    overlay.className = "furai-gallery-fullscreen"
+    overlay.innerHTML = `
+      <button type="button" class="furai-gallery-fullscreen-close" data-furai-gallery-fullscreen-close aria-label="Close">×</button>
+      <img class="furai-gallery-fullscreen-image"
+        data-furai-gallery-fullscreen-image
+        draggable="false"
+        role="button"
+        tabindex="0"
+        aria-pressed="false"
+        aria-label="Image preview. Activate to zoom to 200 percent."
+        title="Click to zoom to 200%">
+    `
+
+    const img = overlay.querySelector("[data-furai-gallery-fullscreen-image]")
+    const close = overlay.querySelector("[data-furai-gallery-fullscreen-close]")
+
+    const toggleZoom = event => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      if(img.classList.contains("is-secondary-zoomed")) {
+        resetFuraiGalleryFullscreenZoom(overlay)
+        return
+      }
+
+      const rect = img.getBoundingClientRect()
+      if(!rect.width || !rect.height) return
+
+      const clientX = Number.isFinite(event.clientX) ? event.clientX : rect.left + rect.width / 2
+      const clientY = Number.isFinite(event.clientY) ? event.clientY : rect.top + rect.height / 2
+      const x = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100))
+      const y = Math.max(0, Math.min(100, ((clientY - rect.top) / rect.height) * 100))
+
+      img.style.setProperty("--furai-gallery-zoom-x", x + "%")
+      img.style.setProperty("--furai-gallery-zoom-y", y + "%")
+      img.classList.add("is-secondary-zoomed")
+      img.setAttribute("aria-pressed", "true")
+      img.title = "Click to return to fit"
+    }
+
+    img.addEventListener("click", toggleZoom)
+    img.addEventListener("keydown", event => {
+      if(event.key !== "Enter" && event.key !== " ") return
+      toggleZoom(event)
+    })
+
+    overlay.addEventListener("click", event => {
+      if(event.target === overlay) closeFuraiGalleryFullscreen()
+    })
+
+    close.addEventListener("click", closeFuraiGalleryFullscreen)
+
+    document.addEventListener("keydown", event => {
+      if(event.key === "Escape" && overlay.style.display === "flex") {
+        closeFuraiGalleryFullscreen()
+      }
+    })
+
+    document.body.appendChild(overlay)
+    window._furaiGalleryFullscreenOverlay = overlay
+  }
+
+  const img = overlay.querySelector("[data-furai-gallery-fullscreen-image]")
+  resetFuraiGalleryFullscreenZoom(overlay)
+  img.src = cleanUrl
+  overlay.style.display = "flex"
+
+furaiGalleryCommentHash(text) =>
+  text = String(text || "")
+  let hash = 0
+  for(let i = 0; i < text.length; i++) hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0
+  return Math.abs(hash).toString(36)
+
+showFuraiNoCommentsPopup() =>
+  let popup = window._furaiNoCommentsPopup
+
+  if(!popup) {
+    popup = document.createElement("div")
+    popup.style.cssText = "z-index:100000;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:min(360px,calc(100vw - 28px));padding:10px 13px;border-radius:10px;border:1px solid var(--border-color,#444);background:var(--input-bg,#222);color:var(--text-color,#eee);box-shadow:0 8px 28px rgba(0,0,0,.35);font:13px/1.45 Open Sans,sans-serif;text-align:left;opacity:0;transition:opacity .18s ease;pointer-events:none;"
+    popup.innerHTML = `<i class="fa-solid fa-volume-xmark" style="margin-right:6px;color:#999;"></i><b>Comments disabled.</b> This gallery image was posted with the no-comments tag.`
+    document.body.appendChild(popup)
+    window._furaiNoCommentsPopup = popup
+  }
+
+  clearTimeout(window._furaiNoCommentsPopupTimer)
+  popup.style.opacity = "1"
+
+  window._furaiNoCommentsPopupTimer = setTimeout(() => {
+    popup.style.opacity = "0"
+  }, 2400)
+
+ensureFuraiGalleryCommentStyle() =>
+  if(document.getElementById("furaiGalleryCommentStyle")) return
+
+  const style = document.createElement("style")
+  style.id = "furaiGalleryCommentStyle"
+  style.textContent = `
+    .furai-gallery-comment-card {
+      width:min(980px,100%);
+      height:min(760px,92dvh);
+      background:var(--background-color,var(--bg-color,#111));
+      color:var(--text-color,#eee);
+      border:1px solid var(--border-color,#444);
+      border-radius:12px;
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      box-shadow:0 12px 40px rgba(0,0,0,.35);
+    }
+
+    .furai-gallery-comment-layout {
+      display:grid;
+      grid-template-columns:minmax(180px,34%) 1fr;
+      min-height:0;
+      flex:1;
+    }
+
+    .furai-gallery-comment-preview {
+      border-right:1px solid var(--border-color,#444);
+      background:var(--input-bg,#151515);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      min-height:0;
+      padding:10px;
+    }
+
+    .furai-gallery-comment-frame-wrap {
+      position:relative;
+      min-width:0;
+      min-height:0;
+      background:var(--background-color,var(--bg-color,#111));
+    }
+
+    .furai-gallery-comment-frame {
+      width:100%;
+      height:100%;
+      border:none;
+      background:transparent;
+    }
+
+    .furai-gallery-comment-loading {
+      position:absolute;
+      inset:0;
+      z-index:2;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      gap:8px;
+      background:var(--background-color,var(--bg-color,#111));
+      color:var(--text-color,#eee);
+      font:13px/1.4 Open Sans,sans-serif;
+      transition:opacity .18s ease;
+      pointer-events:none;
+    }
+
+    .furai-gallery-comment-spinner {
+      width:22px;
+      height:22px;
+      border-radius:999px;
+      border:2px solid rgba(128,128,128,.35);
+      border-top-color:currentColor;
+      animation:furaiGalleryCommentSpin .8s linear infinite;
+    }
+
+    @keyframes furaiGalleryCommentSpin {
+      to { transform:rotate(360deg); }
+    }
+
+    @media (max-width:700px) {
+      .furai-gallery-comment-card {
+        width:calc(100vw - 24px);
+        max-width:calc(100vw - 24px);
+        height:min(720px, calc(100dvh - 32px));
+        max-height:calc(100dvh - 32px);
+        border-radius:12px;
+      }
+
+      .furai-gallery-comment-layout {
+        grid-template-columns:1fr;
+        grid-template-rows:88px minmax(0,1fr);
+      }
+
+      .furai-gallery-comment-preview {
+        display:flex;
+        min-height:0;
+        padding:7px 10px;
+        border-right:0;
+        border-bottom:1px solid var(--border-color,#444);
+      }
+
+      .furai-gallery-comment-preview img {
+        display:block;
+        width:100%;
+        height:72px;
+        max-width:100%;
+        max-height:none !important;
+        object-fit:cover !important;
+      }
+    }
+  `
+  document.head.appendChild(style)
+  
+openFuraiGalleryImageComments(data) =>
+  if(!data || !data.imageUrl) return
+
+  if(String(data.prompt || "").includes("U1F507")) {
+    showFuraiNoCommentsPopup()
+    return
+  }
+
+  const channel = "furai-vassal-" + furaiGalleryCommentHash(data.imageUrl)
+  const isLight = document.body.classList.contains("light-theme")
+  const themeColor = isLight ? "light" : "dark"
+
+  // Gallery code runs in the generator-list context, which may not share
+  // HTML-panel globals. Keep a local fallback so custom emoji never disappear.
+  const galleryCustomEmojiUrl =
+    typeof FURAI_CUSTOM_EMOJI_URL === "string" && FURAI_CUSTOM_EMOJI_URL.trim()
+      ? FURAI_CUSTOM_EMOJI_URL
+      : "https://user.uploads.dev/file/a7d4448b78a45b509373c2f23601b8cb.txt"
+
+  const inheritedForumConfig =
+    typeof baseForumConfig === "object" && baseForumConfig
+      ? baseForumConfig
+      : {}
+
+  const fallbackConfig = {
+    reverseCommentOrder: true,
+    loadFonts: "Open Sans, Inter",
+    containerStyle: "width:100%;height:100%;",
+    inputAreaStyle: "height:68px;",
+    commentPlaceholderText: "Comment on this FurAI gallery image...",
+    submitButtonText: "comment",
+    allowBots: false,
+    customEmojis: galleryCustomEmojiUrl,
+    customEmojiSize: 1.33,
+    loneCustomEmojiSizeMultiplier: 2.8,
+    adminPasswordHash: "bb6ef9b28663b5e7ce46a3a81b2bd21d4e0fea3ad79c26ffd3a43381722055ca"
+  }
+
+  const config = {
+    ...fallbackConfig,
+    ...inheritedForumConfig,
+    channel,
+    forceColorScheme: themeColor,
+    commentPlaceholderText: "Comment on this FurAI gallery image...",
+    submitButtonText: "comment",
+    allowBots: false,
+    reverseCommentOrder: true,
+    customEmojis: inheritedForumConfig.customEmojis || galleryCustomEmojiUrl,
+    customEmojiSize: inheritedForumConfig.customEmojiSize || 1.33,
+    loneCustomEmojiSizeMultiplier: inheritedForumConfig.loneCustomEmojiSizeMultiplier || 2.8
+  }
+
+  const encodedConfig = encodeURIComponent(JSON.stringify(config))
+  const src = "https://comments-plugin.perchance.org/embed/ai-furry-generator+" + channel + "?adminPasswordHash=" + config.adminPasswordHash + "#" + encodedConfig
+
+  let overlay = window._furaiGalleryCommentOverlay
+
+  if(!overlay) {
+    ensureFuraiGalleryCommentStyle()
+
+    overlay = document.createElement("div")
+    overlay.style.cssText = "z-index:99999;position:fixed;inset:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;padding:14px;box-sizing:border-box;"
+
+    overlay.innerHTML = `
+      <div class="furai-gallery-comment-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 10px;border-bottom:1px solid var(--border-color,#444);">
+          <div style="font-weight:700;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><i class="fa-regular fa-comment-dots" style="margin-right:6px;"></i>Gallery Image Comments</div>
+          <button data-furai-gallery-comment-close style="border:1px solid var(--border-color,#444);background:var(--input-bg,#222);color:var(--text-color,#eee);border-radius:8px;width:30px;height:30px;cursor:pointer;">×</button>
+        </div>
+        <div class="furai-gallery-comment-layout">
+          <div class="furai-gallery-comment-preview">
+            <img data-furai-gallery-comment-img
+            title="Click to open and zoom"
+            style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;cursor:zoom-in;">
+          </div>
+          <div class="furai-gallery-comment-frame-wrap">
+            <div data-furai-gallery-comment-loading class="furai-gallery-comment-loading">
+              <div class="furai-gallery-comment-spinner"></div>
+              <div>Loading comments...</div>
+            </div>
+            <iframe data-furai-gallery-comment-frame class="furai-gallery-comment-frame" allow="clipboard-read *; clipboard-write *"></iframe>
+          </div>
+        </div>
+      </div>
+    `
+
+    overlay.onclick = e => {
+      if(e.target === overlay) overlay.style.display = "none"
+    }
+
+    overlay.querySelector("[data-furai-gallery-comment-close]").onclick = () => {
+      overlay.style.display = "none"
+    }
+    
+    const previewImgEl = overlay.querySelector("[data-furai-gallery-comment-img]")
+    const frameEl = overlay.querySelector("[data-furai-gallery-comment-frame]")
+    const loadingEl = overlay.querySelector("[data-furai-gallery-comment-loading]")
+
+    previewImgEl.onclick = event => {
+      event.stopPropagation()
+      showImageFullscreen(previewImgEl.dataset.src || previewImgEl.currentSrc || previewImgEl.src)
+    }
+    
+    frameEl.onload = () => {
+      loadingEl.style.opacity = "0"
+    
+      setTimeout(() => {
+        if(loadingEl.style.opacity === "0") loadingEl.style.display = "none"
+      }, 200)
+    }
+    
+    document.body.appendChild(overlay)
+    window._furaiGalleryCommentOverlay = overlay
+  }
+
+  const imgEl = overlay.querySelector("[data-furai-gallery-comment-img]")
+  const frameEl = overlay.querySelector("[data-furai-gallery-comment-frame]")
+  const loadingEl = overlay.querySelector("[data-furai-gallery-comment-loading]")
+
+  overlay.style.display = "flex"
+
+  if(frameEl.dataset.src !== src) {
+    loadingEl.style.display = "flex"
+    loadingEl.style.opacity = "1"
+
+    frameEl.dataset.src = src
+    frameEl.src = src
+  }
+
+  if(imgEl.dataset.src !== data.imageUrl) {
+    imgEl.dataset.src = data.imageUrl
+    imgEl.removeAttribute("src")
+
+    setTimeout(() => {
+      if(imgEl.dataset.src === data.imageUrl) imgEl.src = data.imageUrl
+    }, 80)
+  }

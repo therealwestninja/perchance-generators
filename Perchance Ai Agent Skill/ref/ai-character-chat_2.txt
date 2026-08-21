@@ -1865,8 +1865,16 @@ notes to self:
     <div id="middleColumnShadowOverlay" style="display:none; position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5); z-index:20;"></div>
     <div id="characterSelection" class="middleColumnScreen" style="flex-grow:1; display:none; overflow: auto;">
       <button id="characterSelectionOpenLeftColumnButton" class="openLeftColumnButton" style="background: var(--button-bg);border-radius: var(--border-radius);border: 1px solid var(--button-border-color);padding: 0.25rem;width: 2rem;min-height: 2rem;margin-right: 0.5rem;position: absolute;top: 0.5rem;left: 0.5rem;">☰</button>
+
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:0.5rem; margin-bottom:0.5rem; margin-top:0.5rem;">
+        <button onclick="window.open('https://perchance.org/ai-rpg','_blank')" style="padding:0.25rem; font-size:110%;">🗡 ai-rpg</button>
+        <button onclick="window.open('https://perchance.org/aschat','_blank')" style="padding:0.25rem; font-size:110%;">🪶 aschat</button>
+        <button onclick="window.open('https://perchance.org/fur-ai','_blank')" style="padding:0.25rem; font-size:110%;">🦊 fur-ai</button>
+        <button onclick="window.open('https://perchance.org/ai-chat','_blank')" style="padding:0.25rem; font-size:110%;">🛼 ai-chat</button>
+        <button onclick="window.open('https://perchance.org/ai-text-to-image-generator','_blank')" style="padding:0.25rem; font-size:110%;">🖼️ images</button>
+      </div>
       
-      <div id="createCharacterAreaCtn" style="display:flex; flex-direction:column; margin-top:1rem; justify-content:center; align-items:center; gap:0.5rem;">
+      <div id="createCharacterAreaCtn" style="display:flex; flex-direction:column; margin-top:0.5rem; justify-content:center; align-items:center; gap:0.5rem;">
         <div style="width:500px; max-width:100%; background:var(--box-color); padding:0.4rem; border:1px solid var(--border-color); border-radius:3px;">
           <div style="opacity:0.7; font-size:80%; margin-bottom:0.125rem;">🌐 Generate a character from <b>any</b> web page:</div>
           <div style="margin:0 auto; display:flex; gap:0.25rem;">
@@ -1926,8 +1934,6 @@ notes to self:
       -->
       
       <p style="text-align: center;font-size: 80%;opacity: 0.8; padding:0 0.5rem; margin-bottom:0.25rem; margin-top:1rem;">This chat app thing is powered by the <a href="/ai-text-plugin" target="_blank">ai-text-plugin</a> and the <a href="/text-to-image-plugin" target="_blank">text-to-image-plugin</a>.</p>
-      <p style="text-align: center;font-size: 80%;opacity: 0.8; padding:0 0.5rem; margin-bottom:0.25rem; margin-top:0;">For a simpler interface, try <a href="https://perchance.org/ai-chat" target="_blank">/ai-chat</a> or <a href="https://perchance.org/ai-rpg" style="font-weight:bold; color:#2bbb00;" target="_blank">/ai-rpg</a>.</p>
-      <p style="text-align: center;font-size: 80%;opacity: 0.8; padding:0 0.5rem; margin-bottom:0.25rem; margin-top:0;">For a more complex interface, copy the <a href="https://perchance.org/ai-character-chat-docs#custom-code" target="_blank">docs</a> to an AI and tell it to write some custom code for you.</p>
       <p style="text-align: center;font-size: 60%;opacity: 0.4; padding:0 0.5rem; margin-bottom:0.25rem; margin-top:1rem;">Special thanks to the <a href="https://en.wikipedia.org/wiki/Ozone_layer", target="_blank">ozone layer</a> for sponsoring development, whose support does not influence editorial decisions.</p>
       <br><br>
     </div> 
