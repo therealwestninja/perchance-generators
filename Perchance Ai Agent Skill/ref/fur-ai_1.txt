@@ -6,6 +6,8 @@ generateText = {import:ai-text-plugin}
 textToImagePlugin = {import:text-to-image-plugin}
 upload = {import:upload-plugin}
 dynamicImport = {import:dynamic-import-plugin}
+commentsPlugin = {import:comments-plugin}
+emoji = {import:huge-emojilist-furry-generator}
 jail = {import:furry-banlist} 
 
 
@@ -357,21 +359,36 @@ openFuraiGalleryImageComments(data) =>
     return
   }
 
+  const galleryIsAdult = data.isNsfw === true || data.isNsfw === "true" || String(data.prompt || "").includes("U1F51E")
+  if(galleryIsAdult) {
+    const hasAdultPass = typeof window.hasFuraiAdultEntryPass === "function" && window.hasFuraiAdultEntryPass()
+    if(!hasAdultPass) {
+      if(typeof window.requireFuraiAdultAccess === "function") {
+        window.requireFuraiAdultAccess("gallery", () => openFuraiGalleryImageComments(data))
+      } else {
+        console.error("FurAI adult Waiting Room is unavailable.")
+      }
+      return
+    }
+  }
+
   const channel = "furai-vassal-" + furaiGalleryCommentHash(data.imageUrl)
   const isLight = document.body.classList.contains("light-theme")
   const themeColor = isLight ? "light" : "dark"
 
   // Gallery code runs in the generator-list context, which may not share
   // HTML-panel globals. Keep a local fallback so custom emoji never disappear.
-  const galleryCustomEmojiUrl =
-    typeof FURAI_CUSTOM_EMOJI_URL === "string" && FURAI_CUSTOM_EMOJI_URL.trim()
-      ? FURAI_CUSTOM_EMOJI_URL
-      : "https://user.uploads.dev/file/a7d4448b78a45b509373c2f23601b8cb.txt"
+  let galleryCustomEmojiUrl = "https://user.uploads.dev/file/a7d4448b78a45b509373c2f23601b8cb.txt"
+  if (typeof emoji !== "undefined" && emoji && emoji.customEmojis) {
+    galleryCustomEmojiUrl = emoji.customEmojis
+  } else if (typeof FURAI_CUSTOM_EMOJI_URL === "string" && FURAI_CUSTOM_EMOJI_URL.trim()) {
+    galleryCustomEmojiUrl = FURAI_CUSTOM_EMOJI_URL
+  }
 
-  const inheritedForumConfig =
-    typeof baseForumConfig === "object" && baseForumConfig
-      ? baseForumConfig
-      : {}
+  let inheritedForumConfig = {}
+  if (typeof baseForumConfig === "object" && baseForumConfig) {
+    inheritedForumConfig = baseForumConfig
+  }
 
   const fallbackConfig = {
     reverseCommentOrder: true,
@@ -387,6 +404,11 @@ openFuraiGalleryImageComments(data) =>
     adminPasswordHash: "bb6ef9b28663b5e7ce46a3a81b2bd21d4e0fea3ad79c26ffd3a43381722055ca"
   }
 
+  let onComment = inheritedForumConfig.onComment
+  if (galleryIsAdult && typeof window.handleFuraiAdultCommentIdentity === "function") {
+    onComment = comment => window.handleFuraiAdultCommentIdentity(comment, "gallery")
+  }
+
   const config = {
     ...fallbackConfig,
     ...inheritedForumConfig,
@@ -396,13 +418,11 @@ openFuraiGalleryImageComments(data) =>
     submitButtonText: "comment",
     allowBots: false,
     reverseCommentOrder: true,
+    onComment,
     customEmojis: inheritedForumConfig.customEmojis || galleryCustomEmojiUrl,
     customEmojiSize: inheritedForumConfig.customEmojiSize || 1.33,
     loneCustomEmojiSizeMultiplier: inheritedForumConfig.loneCustomEmojiSizeMultiplier || 2.8
   }
-
-  const encodedConfig = encodeURIComponent(JSON.stringify(config))
-  const src = "https://comments-plugin.perchance.org/embed/ai-furry-generator+" + channel + "?adminPasswordHash=" + config.adminPasswordHash + "#" + encodedConfig
 
   let overlay = window._furaiGalleryCommentOverlay
 
@@ -425,11 +445,7 @@ openFuraiGalleryImageComments(data) =>
             style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;cursor:zoom-in;">
           </div>
           <div class="furai-gallery-comment-frame-wrap">
-            <div data-furai-gallery-comment-loading class="furai-gallery-comment-loading">
-              <div class="furai-gallery-comment-spinner"></div>
-              <div>Loading comments...</div>
-            </div>
-            <iframe data-furai-gallery-comment-frame class="furai-gallery-comment-frame" allow="clipboard-read *; clipboard-write *"></iframe>
+            <div data-furai-gallery-comment-host class="furai-gallery-comment-frame"></div>
           </div>
         </div>
       </div>
@@ -444,20 +460,9 @@ openFuraiGalleryImageComments(data) =>
     }
     
     const previewImgEl = overlay.querySelector("[data-furai-gallery-comment-img]")
-    const frameEl = overlay.querySelector("[data-furai-gallery-comment-frame]")
-    const loadingEl = overlay.querySelector("[data-furai-gallery-comment-loading]")
-
     previewImgEl.onclick = event => {
       event.stopPropagation()
       showImageFullscreen(previewImgEl.dataset.src || previewImgEl.currentSrc || previewImgEl.src)
-    }
-    
-    frameEl.onload = () => {
-      loadingEl.style.opacity = "0"
-    
-      setTimeout(() => {
-        if(loadingEl.style.opacity === "0") loadingEl.style.display = "none"
-      }, 200)
     }
     
     document.body.appendChild(overlay)
@@ -465,17 +470,29 @@ openFuraiGalleryImageComments(data) =>
   }
 
   const imgEl = overlay.querySelector("[data-furai-gallery-comment-img]")
-  const frameEl = overlay.querySelector("[data-furai-gallery-comment-frame]")
-  const loadingEl = overlay.querySelector("[data-furai-gallery-comment-loading]")
+  const commentsHost = overlay.querySelector("[data-furai-gallery-comment-host]")
 
   overlay.style.display = "flex"
 
-  if(frameEl.dataset.src !== src) {
-    loadingEl.style.display = "flex"
-    loadingEl.style.opacity = "1"
+  if(commentsHost && commentsHost.dataset.furaiGalleryChannel !== channel) {
+    commentsHost.dataset.furaiGalleryChannel = channel
 
-    frameEl.dataset.src = src
-    frameEl.src = src
+    if(typeof window.mountFuraiAifgComments === "function") {
+      window.mountFuraiAifgComments(commentsHost, config, {
+        loadingText: "Loading comments...",
+        channelKey: channel
+      })
+    } else if(typeof commentsPlugin === "function") {
+      const realName = window.generatorName
+      try {
+        window.generatorName = "ai-furry-generator"
+        commentsHost.innerHTML = commentsPlugin(config)
+      } finally {
+        window.generatorName = realName
+      }
+    } else {
+      commentsHost.innerHTML = '<div style="padding:14px;color:#f88;">Comments failed to load.</div>'
+    }
   }
 
   if(imgEl.dataset.src !== data.imageUrl) {

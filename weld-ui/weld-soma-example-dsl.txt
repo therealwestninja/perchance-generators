@@ -1,0 +1,6 @@
+$meta
+  title = weld.soma — live heart rate
+  description = Reads your live heart rate (and HRV) from Rook over the Skybridge `soma` capability, delivered by the Rook AI Chrome extension's Web Bluetooth HR page. No phone, no server: the PC reads the standard BLE Heart Rate profile directly. With no companion/extension it degrades cleanly (no HR, says so). A minimal reference — subscribe to `soma:sensors` for live pushes, or pull `soma latest`.
+  tags = weld, skybridge, soma, heart rate, hr, sensor, biometrics, example
+
+weldSkybridge = {import:weld-skybridge-plugin}

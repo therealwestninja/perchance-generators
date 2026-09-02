@@ -1865,14 +1865,6 @@ notes to self:
     <div id="middleColumnShadowOverlay" style="display:none; position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5); z-index:20;"></div>
     <div id="characterSelection" class="middleColumnScreen" style="flex-grow:1; display:none; overflow: auto;">
       <button id="characterSelectionOpenLeftColumnButton" class="openLeftColumnButton" style="background: var(--button-bg);border-radius: var(--border-radius);border: 1px solid var(--button-border-color);padding: 0.25rem;width: 2rem;min-height: 2rem;margin-right: 0.5rem;position: absolute;top: 0.5rem;left: 0.5rem;">☰</button>
-
-      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:0.5rem; margin-bottom:0.5rem; margin-top:0.5rem;">
-        <button onclick="window.open('https://perchance.org/ai-rpg','_blank')" style="padding:0.25rem; font-size:110%;">🗡 ai-rpg</button>
-        <button onclick="window.open('https://perchance.org/aschat','_blank')" style="padding:0.25rem; font-size:110%;">🪶 aschat</button>
-        <button onclick="window.open('https://perchance.org/fur-ai','_blank')" style="padding:0.25rem; font-size:110%;">🦊 fur-ai</button>
-        <button onclick="window.open('https://perchance.org/ai-chat','_blank')" style="padding:0.25rem; font-size:110%;">🛼 ai-chat</button>
-        <button onclick="window.open('https://perchance.org/ai-text-to-image-generator','_blank')" style="padding:0.25rem; font-size:110%;">🖼️ images</button>
-      </div>
       
       <div id="createCharacterAreaCtn" style="display:flex; flex-direction:column; margin-top:0.5rem; justify-content:center; align-items:center; gap:0.5rem;">
         <div style="width:500px; max-width:100%; background:var(--box-color); padding:0.4rem; border:1px solid var(--border-color); border-radius:3px;">
@@ -1914,6 +1906,15 @@ notes to self:
       
       <div><h2 style="text-align:center; margin-bottom: 0.75rem; margin-top: 4rem; font-size: 1.3rem;">Example Characters</h2></div>
       <div id="starterCharacterList"></div>
+
+      <div><h2 style="text-align:center; margin-bottom: 0.75rem; margin-top: 4rem; font-size: 1.3rem;">Other Stuff</h2></div>
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:0.5rem; margin-bottom:0.5rem; margin-top:0.5rem; font-size:70%;">
+        <button onclick="window.open('https://perchance.org/ai-rpg','_blank')" style="padding:0.25rem; font-size:110%;">🗡 ai-rpg</button>
+        <button onclick="window.open('https://perchance.org/aschat','_blank')" style="padding:0.25rem; font-size:110%;">🪶 aschat</button>
+        <button onclick="window.open('https://perchance.org/fur-ai','_blank')" style="padding:0.25rem; font-size:110%;">🦊 fur-ai</button>
+        <button onclick="window.open('https://perchance.org/ai-chat','_blank')" style="padding:0.25rem; font-size:110%;">🛼 ai-chat</button>
+        <button onclick="window.open('https://perchance.org/ai-text-to-image-generator','_blank')" style="padding:0.25rem; font-size:110%;">🖼️ images</button>
+      </div>
       
       <br><br>
       <p id="storageNoticeEl" style="text-align:left; font-size:70%; opacity:0.8; padding:0.4rem; border:1px solid var(--border-color); border-radius:3px; max-width:500px; margin:0 auto; background:var(--box-color);"></p>
