@@ -1,0 +1,39 @@
+# Rule P — Prove the Wire
+
+The **wire** is any point where your code connects to something else: a DOM element, a
+Perchance plugin (`root.aiTextPlugin`, `textToImagePlugin`, a Dexie/IndexedDB table),
+stored data, or a DSL value. Bugs live at these connections, not in the logic. **Code
+running without error does not mean the wire is connected.** After every change, prove it —
+don't assume it.
+
+## Steps
+
+1. **Prove it worked, not that it ran.** "No error" is not success. Check the real result —
+   the DOM actually updated, the output changed, the value is what you expected — before
+   calling it done.
+2. **Make silent failures loud.** Perchance's sandbox often swallows errors: nothing crashes,
+   nothing happens. Wrap risky code in `try { … } catch (e) { console.error(e) }` and read the
+   **browser console** and the live preview. That console is your evidence.
+3. **Check the connection, not the call.** Did `querySelector` actually match (not `null`)?
+   Did the listener bind to the *right* element? Did the plugin return the **shape** you
+   assumed (log it)? Did the DSL value reach your JS?
+4. **Guard anything that loads async.** Plugins and data tables aren't ready immediately.
+   Confirm `root.<plugin>` / the method / the table **exists** before calling it; `await` or
+   poll if needed.
+5. **Read a failure as a pattern, then fix the pattern:**
+   - `null` from a selector → **timing**: the element isn't rendered yet — run after it exists.
+   - `X is not a function` → the plugin/API **isn't loaded**, or the name is wrong.
+   - Nothing fires → the handler bound **before the element existed**, or it was an inline
+     `onclick` the sandbox stripped.
+6. **Bisect by connection.** When something's off, disable **one** binding / plugin call /
+   import at a time until the broken wire stands alone.
+7. **Work *with* the sandbox, don't fight it.** It blocks `eval`, inline `onclick`, remote
+   `fetch`, and raw `localStorage`. Use the allowed path instead: `addEventListener`, the
+   plugin's own fetch, IndexedDB/Dexie, `postMessage`.
+8. **Leave a debug hook.** Add a small toggleable panel (or a `log()` helper) that shows the
+   last error and key state, so the next problem is one glance, not a guess.
+
+## In one line
+
+Prove every connection works **as wired** — make failures visible, verify the real result,
+and match the fix to the pattern.
