@@ -1,0 +1,625 @@
+$meta
+  title       = marinara.bridge
+  description = Sandbox-side bridge for Marinara Engine. When this Perchance generator is embedded in a Marinara iframe (?marinara=1), it listens for postMessage RPC from the parent, runs text-to-image-plugin jobs, and returns data URLs. Modeled on weld.skybridge but parent-agnostic (any Marinara origin). Degrades to a no-op when not embedded or not opted in.
+  tags        = marinara, bridge, image, t2i, postmessage, plugin
+
+t2iSource = {import:text-to-image-plugin}
+
+$output() =>
+  'use strict';
+
+  if (!window.marinara) window.marinara = {};
+  if (window.marinara.bridge) return window.marinara.bridge;
+
+  // -----------------------------------------------------------------
+  // marinara.bridge — Perchance sandbox half of the Marinara ↔ generator
+  // link. Marinara (parent frame) embeds a generator iframe and drives
+  // image generation through postMessage instead of a public API.
+  //
+  // Opt-in: ?marinara=1 or #marinara in the generator URL.
+  // Protocol channel: marinara.bridge
+  // -----------------------------------------------------------------
+
+  var MSG = 'marinara.bridge';
+  var PROTO = 1;
+  var BUILD = 'mb-plugin/2026-06-21.4';
+  var REQUEST_TIMEOUT = 180000; // t2i can take ~15s; allow headroom for queue
+  var ERROR_BAY_HOLD_MS = 15000;
+  var SAFETY_BAY_HOLD_MS = 300000;
+  var SUCCESS_BAY_HOLD_MS = 2000;
+  var SAFETY_BLOCK_RE = /safety settings have blocked this image/i;
+  var IMAGE_BROKER_ORIGIN = 'https://image-generation.perchance.org';
+  var VALID_WH = { '512x512': 1, '512x768': 1, '768x512': 1, '768x768': 1 };
+
+  var t2iFn = null;
+  var active = false;
+  var allowedOrigins = null; // null = accept first parent origin after hello
+  var pending = {};
+  var queue = [];
+  var queueRunning = false;
+  var DEBUG = false;
+
+  try {
+    if (typeof window.MARINARA_BRIDGE_DEBUG !== 'undefined') DEBUG = !!window.MARINARA_BRIDGE_DEBUG;
+    else if (typeof location !== 'undefined') DEBUG = ((' ' + location.search + ' ' + location.hash).indexOf('mbdebug') !== -1);
+  } catch (e) {}
+
+  try { window.__marinaraBridge = { build: BUILD, version: '1.0.0', at: Date.now() }; } catch (e) {}
+
+  function log() {
+    try {
+      if (!window.console) return;
+      var a = Array.of('marinara.bridge:');
+      console.log.apply(console, a.concat(Array.prototype.slice.call(arguments)));
+    } catch (e) {}
+  }
+  function dbg() { if (DEBUG) log.apply(null, arguments); }
+
+  function bridgeOptIn() {
+    try {
+      if (window.MARINARA_BRIDGE_FORCE === true) return true;
+      // Perchance iframe URLs prepend __generatorLastEditTime, so marinara=1 is
+      // often ?__generatorLastEditTime=…&marinara=1 — not matchable by ' marinara=1 '.
+      var q = String(location.search || '');
+      if (q.charAt(0) === '?') q = q.slice(1);
+      var parts = q.split('&');
+      for (var i = 0; i < parts.length; i++) {
+        var kv = parts[i].split('=');
+        if (decodeURIComponent(kv[0] || '') === 'marinara') {
+          var v = decodeURIComponent(kv[1] || '');
+          if (v === '1' || v === 'true') return true;
+        }
+      }
+      return String(location.hash || '').indexOf('marinara') !== -1;
+    } catch (e) { return false; }
+  }
+
+  function isFramed() {
+    try { return window.parent && window.parent !== window; } catch (e) { return false; }
+  }
+
+  function setT2i(fn) { t2iFn = fn; }
+  function getT2i() {
+    if (!t2iFn) throw new Error('marinara.bridge: no text-to-image function. Import text-to-image-plugin and call marinara.bridge.setT2i(fn).');
+    return t2iFn;
+  }
+
+  function promptText(opts) {
+    return String((opts && (opts.prompt != null ? opts.prompt : opts.text)) || '').trim();
+  }
+
+  function resolutionOf(opts) {
+    if (!opts) return null;
+    if (opts.resolution && VALID_WH[opts.resolution]) return opts.resolution;
+    if (opts.width && opts.height) {
+      var wh = opts.width + 'x' + opts.height;
+      if (VALID_WH[wh]) return wh;
+    }
+    return null;
+  }
+
+  // text-to-image-plugin referenceImage: { url, blur } — blur 0–1, required when url set.
+  function normalizeReferenceImage(opts) {
+    if (!opts || !opts.referenceImage) return null;
+    var ref = opts.referenceImage;
+    var url = ref.url != null ? String(ref.url).trim() : '';
+    if (!url) return { error: 'referenceImage.url required when referenceImage is set' };
+    var blur = ref.blur != null ? Number(ref.blur) : 0.35;
+    if (isNaN(blur) || blur < 0 || blur > 1) {
+      return { error: 'referenceImage.blur must be between 0 and 1' };
+    }
+    return { url: url, blur: blur };
+  }
+
+  function normalizeResult(data) {
+    if (data == null) return { dataUrl: null, inputs: null, text: '' };
+    var text = '';
+    try { text = String(data); } catch (e) { text = ''; }
+    var dataUrl = (data.dataUrl != null) ? String(data.dataUrl) : (/^data:/.test(text) ? text : null);
+    if (!dataUrl && data.canvas && typeof data.canvas.toDataURL === 'function') {
+      try { dataUrl = data.canvas.toDataURL('image/jpeg', 0.9); } catch (e) {}
+    }
+    return {
+      dataUrl: dataUrl,
+      inputs: data.inputs || null,
+      text: dataUrl || text
+    };
+  }
+
+  // postMessage cannot clone HTMLCanvasElement — strip before replying to parent.
+  function packReplyResult(result) {
+    if (!result || !result.ok) return result;
+    var v = result.value || {};
+    // Control replies (ping, configure, …) — pass through unchanged.
+    if (v.pong != null || v.configured != null) return result;
+    var dataUrl = v.dataUrl || null;
+    if (!dataUrl && v.text && String(v.text).indexOf('data:') === 0) dataUrl = String(v.text);
+    return {
+      ok: true,
+      value: {
+        dataUrl: dataUrl,
+        inputs: v.inputs || null,
+        text: dataUrl || String(v.text || '').slice(0, 240)
+      }
+    };
+  }
+
+  function originAllowed(origin) {
+    if (typeof origin !== 'string' || !origin || origin === 'null') return false;
+    if (allowedOrigins && allowedOrigins.length) {
+      for (var i = 0; i < allowedOrigins.length; i++) {
+        if (allowedOrigins[i] === origin) return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
+  function postParent(obj) {
+    try {
+      if (!isFramed()) return;
+      window.parent.postMessage(obj, '*');
+    } catch (e) { dbg('postParent failed', e); }
+  }
+
+  function announceReady() {
+    postParent({
+      channel: MSG,
+      type: 'ready',
+      proto: PROTO,
+      build: BUILD,
+      generatorName: (typeof window.generatorName !== 'undefined') ? window.generatorName : null,
+      capabilities: ['image'],
+      version: '1.0.0'
+    });
+  }
+
+  function stripHtml(s) {
+    return String(s || '').replace(/<[^>]*>/g, '').trim();
+  }
+
+  function isSafetyBlockError(msg) {
+    return SAFETY_BLOCK_RE.test(String(msg || ''));
+  }
+
+  // Perchance image broker stores consent on image-generation.perchance.org:
+  // localStorage.okayToShowNsfwUntil = Date.now() + durationMs (0 = PG-13 on).
+  // Relay to mounted broker iframes; user can also use the native UI in an interactive render bay.
+  function applyContentGuardSettings(durationMs, over18) {
+    var ms = Number(durationMs);
+    if (isNaN(ms)) ms = 0;
+    if (ms > 0 && !over18) return { ok: false, reason: 'over_18_required' };
+    var until = Date.now() + ms;
+    var payload = {
+      type: 'setOkayToShowNsfwUntil',
+      okayToShowNsfwUntil: until,
+      perchanceSetOkayToShowNsfwUntil: until
+    };
+    var relayed = 0;
+    try {
+      var frames = document.querySelectorAll('iframe');
+      for (var i = 0; i < frames.length; i++) {
+        var fr = frames[i];
+        try {
+          if (!fr.src || String(fr.src).indexOf('image-generation.perchance.org') === -1) continue;
+          fr.contentWindow.postMessage(payload, IMAGE_BROKER_ORIGIN);
+          relayed++;
+        } catch (e) {}
+      }
+    } catch (e2) {}
+    reportStatus('info', 'content_guard_updated', { until: until, relayed: relayed });
+    return { ok: true, until: until, relayed: relayed };
+  }
+
+  function makeBayInteractive(bay, cap, safetyBlocked) {
+    if (!bay) return;
+    bay.style.pointerEvents = 'auto';
+    bay.style.width = '360px';
+    bay.style.height = '320px';
+    if (!cap) return;
+    if (safetyBlocked) {
+      cap.textContent = 'blocked by safety filter \u2014 click \u2699\ufe0f in panel, save, retry';
+      cap.style.color = '#ffb86b';
+      cap.style.background = '#2a1f10';
+    }
+  }
+
+  function isT2iIframeHtml(html) {
+    return String(html || '').indexOf('<iframe') !== -1;
+  }
+
+  function parseT2iSyncError(html) {
+    if (isT2iIframeHtml(html)) return null;
+    var text = stripHtml(html);
+    return text || 'text-to-image-plugin returned no iframe';
+  }
+
+  function extractIframeClass(html) {
+    var m = String(html || '').match(/\s(id[0-9][0-9a-z.]*)\s/);
+    return m ? m[1] : null;
+  }
+
+  function findPromptField() {
+    try {
+      if (typeof window.MARINARA_BRIDGE_PROMPT_SELECTOR === 'string') {
+        var custom = document.querySelector(window.MARINARA_BRIDGE_PROMPT_SELECTOR);
+        if (custom && !custom.closest('[data-marinara-t2i-bay]')) return custom;
+      }
+    } catch (e) {}
+    var selectors = [
+      '#positivePromptInput',
+      '#promptInput',
+      '#prompt',
+      'textarea[name="prompt"]',
+      'textarea.prompt-input',
+      'textarea.promptInput'
+    ];
+    for (var si = 0; si < selectors.length; si++) {
+      try {
+        var el = document.querySelector(selectors[si]);
+        if (el && !el.closest('[data-marinara-t2i-bay]')) return el;
+      } catch (e2) {}
+    }
+    return null;
+  }
+
+  function setFieldValueSilently(el, value) {
+    var text = String(value || '');
+    try {
+      var proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
+        : (el instanceof HTMLInputElement ? HTMLInputElement.prototype : null);
+      if (proto) {
+        var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) {
+          desc.set.call(el, text);
+          return;
+        }
+      }
+    } catch (e) {}
+    el.value = text;
+  }
+
+  function mirrorPromptToPage(text) {
+    var prompt = String(text || '').trim();
+    if (!prompt) return false;
+    try {
+      var el = findPromptField();
+      if (!el) { dbg('no prompt field found for mirror'); return false; }
+      if ('value' in el) {
+        if (String(el.value || '').trim() === prompt) {
+          dbg('prompt already mirrored');
+          return true;
+        }
+        setFieldValueSilently(el, prompt);
+        // Do not dispatch input/change — many generators (n8n-style, Perchance
+        // paragraph inputs) treat those as user edits and re-render or reload.
+        if (window.MARINARA_BRIDGE_MIRROR_EVENTS === true) {
+          try { el.dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+          try { el.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+        }
+      } else if (el.isContentEditable) {
+        el.textContent = prompt;
+      }
+      dbg('mirrored prompt (' + prompt.length + ' chars)');
+      return true;
+    } catch (e3) { dbg('mirrorPromptToPage failed', e3); return false; }
+  }
+
+  var lastErrorToast = null;
+
+  function clearErrorToast() {
+    try {
+      if (lastErrorToast && lastErrorToast.parentNode) lastErrorToast.parentNode.removeChild(lastErrorToast);
+    } catch (e) {}
+    lastErrorToast = null;
+  }
+
+  function reportStatus(level, message, detail) {
+    postParent({
+      channel: MSG,
+      type: 'status',
+      proto: PROTO,
+      level: level,
+      message: message,
+      detail: detail || null
+    });
+  }
+
+  function showErrorToast(message) {
+    var msg = stripHtml(message) || 'image generation failed';
+    try { console.error('marinara.bridge:', msg); } catch (e) {}
+    reportStatus('error', msg);
+    try {
+      if (!lastErrorToast) {
+        lastErrorToast = document.createElement('div');
+        lastErrorToast.setAttribute('data-marinara-bridge-error', '1');
+        lastErrorToast.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);max-width:min(520px,92vw);z-index:2147483647;background:#3d1515;border:1px solid #e55;color:#fcc;padding:10px 14px;font:600 12px/1.45 system-ui,sans-serif;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.5);cursor:pointer;white-space:pre-wrap;word-break:break-word;';
+        lastErrorToast.title = 'Click to dismiss';
+        lastErrorToast.addEventListener('click', function() { clearErrorToast(); });
+        document.body.appendChild(lastErrorToast);
+      }
+      lastErrorToast.textContent = 'marinara.bridge error: ' + msg;
+    } catch (e2) {}
+  }
+
+  function removeT2iBay(bay) {
+    try { if (bay && bay.parentNode) bay.parentNode.removeChild(bay); } catch (e) {}
+  }
+
+  function dismissBay(bay, opts) {
+    if (!bay) return;
+    opts = opts || {};
+    var hold = opts.safetyBlocked ? SAFETY_BAY_HOLD_MS : (opts.error ? ERROR_BAY_HOLD_MS : SUCCESS_BAY_HOLD_MS);
+    if (opts.error && opts.capEl) {
+      opts.capEl.textContent = 'error: ' + stripHtml(opts.error).slice(0, 140);
+      opts.capEl.style.color = '#ffb4b4';
+      opts.capEl.style.background = '#2a1010';
+    }
+    setTimeout(function() { removeT2iBay(bay); }, hold);
+  }
+
+  // Perchance t2i only runs when its broker iframe is in a visible on-screen element
+  // (a 1px off-screen mount silently never fires onFinish — same lesson as weld.swarm).
+  function mountT2iBay(html, promptLabel, bayOpts) {
+    if (!html || html.indexOf('iframe') === -1) return null;
+    bayOpts = bayOpts || {};
+    var bay = document.createElement('div');
+    bay.setAttribute('data-marinara-t2i-bay', '1');
+    var w = bayOpts.width || '320px';
+    var h = bayOpts.height || '240px';
+    var pe = bayOpts.interactive ? 'auto' : 'none';
+    bay.style.cssText = 'position:fixed;bottom:8px;right:8px;width:' + w + ';height:' + h + ';z-index:2147483646;background:#111;border:1px solid rgba(255,255,255,.15);box-shadow:0 8px 32px rgba(0,0,0,.45);overflow:hidden;pointer-events:' + pe + ';';
+    var cap = document.createElement('div');
+    var label = String(promptLabel || '').trim();
+    cap.textContent = label
+      ? ('rendering: ' + label.slice(0, 72) + (label.length > 72 ? '\u2026' : ''))
+      : 'marinara.bridge rendering\u2026';
+    cap.style.cssText = 'font:600 11px system-ui,sans-serif;padding:5px 8px;color:#8bdcff;border-bottom:1px solid rgba(255,255,255,.1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+    bay.__marinaraCap = cap;
+    bay.appendChild(cap);
+    var slot = document.createElement('div');
+    slot.style.cssText = 'width:100%;height:calc(100% - 28px);';
+    slot.innerHTML = html;
+    bay.appendChild(slot);
+    document.body.appendChild(bay);
+    return bay;
+  }
+
+  function runT2i(opts) {
+    return new Promise(function(resolve, reject) {
+      var prompt = promptText(opts);
+      if (!prompt) { reject(new Error('empty prompt')); return; }
+      var res = resolutionOf(opts);
+      if (opts && (opts.resolution || (opts.width && opts.height)) && !res) {
+        reject(new Error('unsupported resolution; use 512x512, 512x768, 768x512, or 768x768'));
+        return;
+      }
+      var callOpts = Object.assign({}, opts);
+      if (res) callOpts.resolution = res;
+      if (!callOpts.resolution) callOpts.resolution = '768x768';
+
+      var refNorm = normalizeReferenceImage(callOpts);
+      if (refNorm && refNorm.error) { reject(new Error(refNorm.error)); return; }
+      if (refNorm) callOpts.referenceImage = refNorm;
+      else delete callOpts.referenceImage;
+
+      clearErrorToast();
+      try {
+        document.querySelectorAll('[data-marinara-t2i-bay]').forEach(function(el) { removeT2iBay(el); });
+      } catch (eBay) {}
+      try { window.__marinaraBridgeGenerating = true; } catch (e0) {}
+      mirrorPromptToPage(prompt);
+      reportStatus('info', 'generating', { prompt: prompt, resolution: callOpts.resolution });
+
+      var fn = getT2i();
+      var settled = false;
+      var bay = null;
+      var cap = null;
+      var brokerUnsub = null;
+      var timeoutId = null;
+
+      function finishJob() {
+        try { window.__marinaraBridgeGenerating = false; } catch (e0) {}
+      }
+
+      function armTimeout(ms, message) {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(function() {
+          fail(new Error(message || ('image generation timeout (' + Math.round(ms / 1000) + 's)')));
+        }, ms);
+      }
+
+      function enterSafetyBlockWait(msg) {
+        if (settled) return;
+        settled = true;
+        finishJob();
+        if (brokerUnsub) brokerUnsub();
+        if (timeoutId) clearTimeout(timeoutId);
+        log('safety block:', msg);
+        reportStatus('info', 'safety_blocked', { message: msg });
+        showErrorToast(msg + '\n\nUse \u2699\ufe0f change settings in the render panel (bottom-right), save, then generate again.');
+        makeBayInteractive(bay, cap, true);
+        reject(new Error(msg));
+      }
+
+      function fail(err) {
+        if (settled) return;
+        var msg = (err && err.message) ? err.message : String(err);
+        if (isSafetyBlockError(msg)) {
+          enterSafetyBlockWait(msg);
+          return;
+        }
+        settled = true;
+        finishJob();
+        if (brokerUnsub) brokerUnsub();
+        if (timeoutId) clearTimeout(timeoutId);
+        log('generate failed:', msg);
+        showErrorToast(msg);
+        dismissBay(bay, { error: msg, capEl: cap });
+        reject(err instanceof Error ? err : new Error(msg));
+      }
+
+      function succeed(data) {
+        if (settled) return;
+        settled = true;
+        finishJob();
+        if (brokerUnsub) brokerUnsub();
+        if (timeoutId) clearTimeout(timeoutId);
+        var norm = normalizeResult(data);
+        if (!norm.dataUrl) {
+          fail(new Error('generation finished without image data'));
+          return;
+        }
+        dismissBay(bay, { capEl: cap });
+        resolve(norm);
+      }
+
+      var enriched = Object.assign({}, callOpts, {
+        onFinish: function(data) { succeed(data); }
+      });
+
+      var html;
+      try { html = String(fn(enriched)); } catch (e) { fail(e); return; }
+
+      var syncErr = parseT2iSyncError(html);
+      if (syncErr) { fail(new Error(syncErr)); return; }
+
+      var iframeClass = extractIframeClass(html);
+      if (iframeClass) {
+        function onBrokerMsg(ev) {
+          var d = ev && ev.data;
+          if (!d || typeof d !== 'object') return;
+          if (d.id !== iframeClass && d.iframeId !== iframeClass) return;
+          if (d.type === 'error' || d.error) {
+            var errMsg = d.error || d.message || d.reason || 'broker error';
+            if (isSafetyBlockError(errMsg)) enterSafetyBlockWait(String(errMsg));
+            else fail(new Error(errMsg));
+            return;
+          }
+          if (d.type === 'finished' && !d.dataUrl) {
+            var finMsg = d.message || d.error || d.reason || 'broker finished without image';
+            if (isSafetyBlockError(finMsg)) enterSafetyBlockWait(String(finMsg));
+            else fail(new Error(finMsg));
+          }
+        }
+        window.addEventListener('message', onBrokerMsg);
+        brokerUnsub = function() { window.removeEventListener('message', onBrokerMsg); };
+      }
+
+      try { bay = mountT2iBay(html, prompt); cap = bay && bay.__marinaraCap; } catch (e2) { dbg('mountT2iBay failed', e2); }
+
+      armTimeout(REQUEST_TIMEOUT);
+    });
+  }
+
+  function pumpQueue() {
+    if (queueRunning) return;
+    if (!queue.length) return;
+    queueRunning = true;
+    var job = queue.shift();
+    runT2i(job.payload).then(function(result) {
+      queueRunning = false;
+      job.resolve({ ok: true, value: result });
+      pumpQueue();
+    }).catch(function(err) {
+      queueRunning = false;
+      job.resolve({ ok: false, reason: (err && err.message) ? err.message : String(err) });
+      pumpQueue();
+    });
+  }
+
+  function enqueueImage(payload) {
+    return new Promise(function(resolve) {
+      queue.push({ payload: payload || {}, resolve: resolve });
+      pumpQueue();
+    });
+  }
+
+  function replyToParent(nonce, result) {
+    var packed = packReplyResult(result);
+    var msg = { channel: MSG, type: 'reply', proto: PROTO, nonce: nonce, result: packed };
+    try { window.parent.postMessage(msg, '*'); } catch (e) { dbg('replyToParent failed', e); }
+  }
+
+  function replyTo(ev, nonce, result) {
+    replyToParent(nonce, result);
+    try {
+      if (ev && ev.source && ev.source !== window.parent && typeof ev.source.postMessage === 'function') {
+        ev.source.postMessage({ channel: MSG, type: 'reply', proto: PROTO, nonce: nonce, result: packReplyResult(result) }, ev.origin || '*');
+      }
+    } catch (e) { dbg('reply failed', e); }
+  }
+
+  function onMessage(ev) {
+    var d = ev && ev.data;
+    if (!d || typeof d !== 'object' || d.channel !== MSG) return;
+    if (!active) return;
+    if (!originAllowed(ev.origin)) { dbg('drop origin', ev.origin); return; }
+
+    if (d.type === 'ping') {
+      replyTo(ev, d.nonce, { ok: true, value: { pong: true, build: BUILD } });
+      return;
+    }
+
+    if (d.type === 'configure') {
+      if (d.allowedOrigins && d.allowedOrigins.length) {
+        allowedOrigins = [];
+        for (var i = 0; i < d.allowedOrigins.length; i++) allowedOrigins.push(String(d.allowedOrigins[i]));
+      }
+      replyTo(ev, d.nonce, { ok: true, value: { configured: true } });
+      return;
+    }
+
+    if (d.type === 'request') {
+      var cap = String(d.cap || '');
+      var nonce = String(d.nonce || '');
+      if (!nonce) return;
+      if (cap !== 'image') {
+        replyTo(ev, nonce, { ok: false, reason: 'unsupported capability: ' + cap });
+        return;
+      }
+      enqueueImage(d.payload).then(function(result) {
+        replyTo(ev, nonce, result);
+      });
+      return;
+    }
+  }
+
+  function start() {
+    if (active) return window.marinara.bridge;
+    if (!bridgeOptIn()) { dbg('not opted in (?marinara=1)'); return null; }
+    if (!isFramed()) { dbg('not framed'); return null; }
+
+    active = true;
+    window.addEventListener('message', onMessage);
+    log('active (build ' + BUILD + ')');
+    announceReady();
+    // Re-announce so a parent client that attaches after iframe load still hears ready.
+    var announceN = 0;
+    var announceTimer = setInterval(function() {
+      if (!active || ++announceN > 20) { clearInterval(announceTimer); return; }
+      announceReady();
+    }, 600);
+    return window.marinara.bridge;
+  }
+
+  window.marinara.bridge = {
+    setT2i: setT2i,
+    start: start,
+    generate: enqueueImage,
+    mirrorPrompt: mirrorPromptToPage,
+    applyContentGuardSettings: applyContentGuardSettings,
+    isSafetyBlockError: isSafetyBlockError,
+    isActive: function() { return active; },
+    isOptedIn: bridgeOptIn,
+    isFramed: isFramed,
+    protocol: PROTO,
+    build: BUILD,
+    version: '1.0.0',
+    channel: MSG
+  };
+
+  window.marinara.bridge.setT2i(t2iSource);
+  start();
+
+  return window.marinara.bridge;

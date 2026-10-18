@@ -1,0 +1,8 @@
+$meta
+  title       = Marinara T2I Host
+  description = Minimal Perchance text-to-image host for Marinara Engine. Import marinara.bridge, open with ?marinara=1 inside Marinara's iframe, and drive generation via postMessage. Standalone UI still works for manual testing on perchance.org.
+  tags        = marinara, bridge, image, t2i, host, example
+
+marinaraBridge = {import:marinara-bridge-plugin}
+textToImagePlugin = {import:text-to-image-plugin}
+uploadPlugin = {import:upload-plugin}

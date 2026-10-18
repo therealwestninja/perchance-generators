@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Marinara T2I Host</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --ink: #e8eef7;
+      --muted: #8b9cb3;
+      --accent: #ff6b4a;
+      --accent2: #4ecdc4;
+      --border: rgba(255,255,255,.08);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: system-ui, -apple-system, Segoe UI, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      min-height: 100vh;
+      background: radial-gradient(1200px 600px at 10% -10%, rgba(255,107,74,.12), transparent),
+                  radial-gradient(900px 500px at 100% 0%, rgba(78,205,196,.10), transparent),
+                  var(--bg);
+      color: var(--ink);
+      font: 15px/1.5 var(--sans);
+      padding: 24px;
+    }
+    .wrap { max-width: 920px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; letter-spacing: -.02em; margin-bottom: 6px; }
+    .sub { color: var(--muted); margin-bottom: 20px; font-size: .92rem; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      font: 600 11px var(--mono); padding: 4px 10px; border-radius: 999px;
+      border: 1px solid var(--border); color: var(--muted);
+    }
+    .pill.on { color: #7dffb0; border-color: rgba(125,255,176,.35); }
+    .pill.off { color: var(--muted); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    label { display: block; font: 600 12px var(--mono); color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
+    textarea, select, input {
+      width: 100%;
+      background: #0c1118;
+      color: var(--ink);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: 14px var(--sans);
+      outline: none;
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    textarea:focus, select:focus, input:focus { border-color: rgba(78,205,196,.45); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    button {
+      border: 0; border-radius: 8px; padding: 10px 16px;
+      font: 600 14px var(--sans); cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #ff8f6b);
+      color: #1a0d08;
+    }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--border); }
+    #preview {
+      margin-top: 12px;
+      min-height: 120px;
+      border: 1px dashed var(--border);
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      overflow: hidden;
+    }
+    #preview img { max-width: 100%; max-height: 480px; display: block; }
+    #ref-preview {
+      margin-top: 8px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      min-height: 56px;
+    }
+    #ref-preview img {
+      width: 72px;
+      height: 72px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+    #ref-preview .ref-meta { font-size: 12px; color: var(--muted); line-height: 1.45; }
+    input[type="range"] { width: 100%; padding: 0; border: 0; background: transparent; }
+    #log {
+      font: 12px/1.5 var(--mono);
+      white-space: pre-wrap;
+      color: var(--muted);
+      min-height: 48px;
+    }
+    .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    code { font-family: var(--mono); font-size: 12px; color: var(--accent2); }
+    .content-guard-box { margin-top: 10px; font-size: 13px; line-height: 1.5; }
+    .content-guard-title { text-align: center; color: var(--muted); margin: 0 0 10px; font-size: 12px; }
+    .content-guard-box select { margin-bottom: 8px; }
+    .cg-over18 {
+      display: flex; gap: 8px; align-items: center; margin-top: 10px;
+      opacity: 0.35; pointer-events: none; cursor: pointer;
+    }
+    .cg-over18.on { opacity: 1; pointer-events: auto; }
+    .cg-over18 span { user-select: none; font-size: 13px; }
+    #content-guard-message {
+      padding: 12px; border-radius: 8px;
+      border: 1px solid rgba(255, 107, 74, .35);
+      background: rgba(255, 107, 74, .08);
+    }
+    #content-guard-message p { margin: 0 0 8px; }
+    #content-guard-message p:last-of-type { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Marinara T2I Host</h1>
+    <p class="sub">Perchance text-to-image adapter for <strong>Marinara Engine</strong>. Embed this generator in Marinara with <code>?marinara=1</code> to accept remote generation requests.</p>
+
+    <div class="row">
+      <span class="pill" id="pill-bridge"><span class="dot"></span><span id="bridge-txt">bridge: checking…</span></span>
+      <span class="pill" id="pill-frame"><span class="dot"></span><span id="frame-txt">frame: …</span></span>
+      <span class="pill" id="pill-opt"><span class="dot"></span><span id="opt-txt">opt-in: …</span></span>
+    </div>
+
+    <div class="panel">
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="A cozy tavern at dusk, warm lantern light, painterly fantasy art"></textarea>
+
+      <div style="margin-top:14px">
+        <label for="ref-file">Character reference image (optional)</label>
+        <div class="row" style="margin-top:6px;margin-bottom:8px">
+          <input id="ref-file" type="file" accept="image/*" style="width:auto;flex:1;min-width:180px">
+          <button class="ghost" id="ref-clear" type="button">Clear ref</button>
+        </div>
+        <label for="ref-url">Or paste an upload URL</label>
+        <input id="ref-url" type="url" placeholder="https://user.uploads.dev/file/…" style="margin-top:6px">
+        <div class="grid" style="margin-top:10px">
+          <div>
+            <label for="ref-blur">Reference strength (blur 0–1)</label>
+            <input id="ref-blur" type="range" min="0" max="1" step="0.05" value="0.35">
+            <div class="note" id="ref-blur-val">0.35 — lower = stronger likeness</div>
+          </div>
+        </div>
+        <div id="ref-preview"><span class="ref-meta">No reference image</span></div>
+        <div class="note">Uploads via <code>upload-plugin</code> (Perchance CDN). The bridge forwards <code>referenceImage</code> to <code>text-to-image-plugin</code> for character consistency.</div>
+      </div>
+
+      <div class="grid" style="margin-top:12px">
+        <div>
+          <label for="resolution">Resolution</label>
+          <select id="resolution">
+            <option value="768x768">768 × 768 (square)</option>
+            <option value="512x768">512 × 768 (portrait)</option>
+            <option value="768x512">768 × 512 (landscape)</option>
+            <option value="512x512">512 × 512 (small)</option>
+          </select>
+        </div>
+        <div>
+          <label for="guidance">Guidance</label>
+          <input id="guidance" type="number" min="1" max="30" step="0.5" value="7">
+        </div>
+        <div>
+          <label for="seed">Seed (-1 = random)</label>
+          <input id="seed" type="number" value="-1">
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button id="go">Generate locally</button>
+        <button class="ghost" id="copy-url" type="button">Copy Marinara embed URL</button>
+      </div>
+      <div id="preview"><span id="preview-ph">No image yet</span></div>
+      <div class="note">Local button uses the same <code>text-to-image-plugin</code> path the bridge calls. Marinara drives the bridge via <code>postMessage</code> — see protocol below.</div>
+    </div>
+
+    <div class="panel" id="content-safety-panel">
+      <label>Content safety</label>
+      <p class="note">Perchance stores consent on the image broker (<code>image-generation.perchance.org</code>) as <code>localStorage.okayToShowNsfwUntil</code>. When a generation is blocked, use &quot;change settings&quot; in the render panel (bottom-right) or save here, then retry.</p>
+
+      <div id="content-guard-message" hidden>
+        <p><strong>Your safety settings have blocked this image.</strong></p>
+        <p class="note">The generated image may contain themes not appropriate for all audiences (graphic violence, sexual content, etc.). This can happen due to model randomness or specific words in your prompt.</p>
+        <button class="ghost" id="cg-show-settings" type="button">Show safety settings</button>
+      </div>
+
+      <div id="content-guard-settings" class="content-guard-box">
+        <p class="content-guard-title">– Content Safety Settings –</p>
+        <select id="cg-duration">
+          <option value="0">Enable PG-13 filter</option>
+          <option value="900000">Disable filter for 15 minutes</option>
+          <option value="3600000">Disable filter for 1 hour</option>
+          <option value="86400000">Disable filter for 24h</option>
+          <option value="315360000000">Disable filter permanently</option>
+        </select>
+        <div id="cg-over18-area" class="cg-over18">
+          <input id="cg-over18" type="checkbox">
+          <span id="cg-over18-label">I am over 18 years old</span>
+        </div>
+        <div class="row" style="margin-top:12px;margin-bottom:0">
+          <button id="cg-save" type="button">Save safety settings</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <label>Bridge log</label>
+      <div id="log">—</div>
+    </div>
+
+    <div class="panel">
+      <label>Parent integration (Marinara)</label>
+      <pre id="proto" style="font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--muted);overflow:auto"></pre>
+    </div>
+  </div>
+
+<script>
+(function () {
+  var MSG = 'marinara.bridge';
+
+  function $(id) { return document.getElementById(id); }
+  function log(line) {
+    var el = $('log');
+    var t = new Date().toISOString().slice(11, 19);
+    el.textContent = (el.textContent === '—' ? '' : el.textContent + '\n') + '[' + t + '] ' + line;
+  }
+  function setPill(id, on, text) {
+    var el = $(id);
+    el.className = 'pill ' + (on ? 'on' : 'off');
+    el.querySelector('span:last-child').textContent = text;
+  }
+
+  function grabPlugin(name) {
+    try { if (typeof root !== 'undefined' && root[name] !== undefined) return root[name]; } catch (e) {}
+    try { if (window[name] !== undefined) return window[name]; } catch (e2) {}
+    return null;
+  }
+
+  var refState = { url: '', preview: '' };
+
+  function updateRefPreview() {
+    var box = $('ref-preview');
+    box.innerHTML = '';
+    var src = refState.preview || refState.url;
+    if (!src) {
+      box.innerHTML = '<span class="ref-meta">No reference image</span>';
+      return;
+    }
+    var img = new Image();
+    img.src = src;
+    img.alt = 'reference';
+    var meta = document.createElement('div');
+    meta.className = 'ref-meta';
+    var blur = Number($('ref-blur').value) || 0.35;
+    meta.textContent = refState.url
+      ? 'URL: ' + refState.url.replace(/^(.{48}).+/, '$1…') + '\nblur: ' + blur
+      : 'preview only';
+    box.appendChild(img);
+    box.appendChild(meta);
+  }
+
+  function setRefUrl(url, preview) {
+    refState.url = url || '';
+    refState.preview = preview || url || '';
+    if (url) $('ref-url').value = url;
+    updateRefPreview();
+  }
+
+  function clearRef() {
+    refState = { url: '', preview: '' };
+    $('ref-file').value = '';
+    $('ref-url').value = '';
+    updateRefPreview();
+    log('reference image cleared');
+  }
+
+  async function uploadRefFile(file) {
+    var uploadFn = grabPlugin('uploadPlugin');
+    if (!uploadFn) throw new Error('upload-plugin not available');
+    log('uploading reference…');
+    var result = await uploadFn(file);
+    if (result && result.error) throw new Error(String(result.error));
+    return String(result.url);
+  }
+
+  async function onRefFileChange(ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    try {
+      var localPreview = URL.createObjectURL(file);
+      refState.preview = localPreview;
+      updateRefPreview();
+      var url = await uploadRefFile(file);
+      setRefUrl(url, url);
+      log('reference uploaded: ' + url);
+    } catch (e) {
+      log('reference upload failed: ' + (e && e.message));
+      clearRef();
+    }
+  }
+
+  // Imported plugins do not auto-run $output — trigger explicitly.
+  try {
+    if (typeof root !== 'undefined' && typeof root.marinaraBridge === 'function') root.marinaraBridge();
+  } catch (e) { log('root.marinaraBridge() failed: ' + (e && e.message)); }
+
+  var bridge = (window.marinara && window.marinara.bridge) || null;
+
+  function refreshStatus() {
+    var framed = false;
+    try { framed = window.parent !== window; } catch (e) { framed = true; }
+    var opted = bridge && bridge.isOptedIn ? bridge.isOptedIn() : false;
+    var active = bridge && bridge.isActive ? bridge.isActive() : false;
+    setPill('pill-bridge', active, 'bridge: ' + (active ? 'listening' : 'idle'));
+    setPill('pill-frame', framed, 'frame: ' + (framed ? 'embedded' : 'top'));
+    setPill('pill-opt', opted, 'opt-in: ' + (opted ? 'yes' : 'add ?marinara=1'));
+    if (active) log('bridge ready — waiting for Marinara requests');
+    else if (!opted) log('not in bridge mode — append ?marinara=1 for Marinara embed');
+    else if (!framed) log('open inside Marinara iframe to activate bridge');
+  }
+
+  function readOpts() {
+    var opts = {
+      prompt: $('prompt').value.trim(),
+      resolution: $('resolution').value,
+      guidanceScale: Number($('guidance').value) || 7,
+      seed: Number($('seed').value)
+    };
+    var refUrl = (refState.url || $('ref-url').value || '').trim();
+    if (refUrl) {
+      opts.referenceImage = {
+        url: refUrl,
+        blur: Number($('ref-blur').value)
+      };
+    }
+    return opts;
+  }
+
+  function showImage(dataUrl) {
+    var box = $('preview');
+    box.innerHTML = '';
+    if (!dataUrl) { box.textContent = 'No image returned'; return; }
+    var img = new Image();
+    img.src = String(dataUrl);
+    img.alt = 'generated';
+    box.appendChild(img);
+  }
+
+  function showSafetyBlockedUi(reason) {
+    if ($('content-guard-message')) $('content-guard-message').hidden = false;
+    log('safety blocked: ' + (reason || 'change settings and retry'));
+  }
+
+  function syncContentGuardOver18Area() {
+    var ms = Number($('cg-duration').value) || 0;
+    var area = $('cg-over18-area');
+    if (!area) return;
+    area.classList.toggle('on', ms > 0);
+  }
+
+  function saveContentGuardSettings() {
+    var ms = Number($('cg-duration').value) || 0;
+    var over18 = $('cg-over18') && $('cg-over18').checked;
+    if (ms > 0 && !over18) {
+      alert('Sorry, you must be over 18 to disable the filter. If you are, click the checkbox.');
+      return;
+    }
+    var b = (window.marinara && window.marinara.bridge) || null;
+    if (!b || typeof b.applyContentGuardSettings !== 'function') {
+      log('content safety: bridge.applyContentGuardSettings unavailable');
+      return;
+    }
+    var r = b.applyContentGuardSettings(ms, over18);
+    if (!r.ok) {
+      log('content safety: ' + (r.reason || 'failed'));
+      return;
+    }
+    var label = ms === 0 ? 'PG-13 filter enabled' : ('filter relaxed for ' + ms + 'ms');
+    log('content safety saved — ' + label + ' (relayed to ' + (r.relayed || 0) + ' broker iframe(s))');
+    if (!r.relayed) {
+      log('tip: after a blocked image, use change settings in the render panel (bottom-right), or generate once then save here again');
+    }
+    if ($('content-guard-message')) $('content-guard-message').hidden = true;
+  }
+
+  function isSafetyBlockedReason(reason) {
+    var b = (window.marinara && window.marinara.bridge) || null;
+    if (b && typeof b.isSafetyBlockError === 'function') return b.isSafetyBlockError(reason);
+    return /safety settings have blocked this image/i.test(String(reason || ''));
+  }
+
+  async function generateLocal() {
+    if (!bridge || typeof bridge.generate !== 'function') {
+      log('bridge.generate unavailable');
+      return;
+    }
+    var opts = readOpts();
+    if (!opts.prompt) { log('prompt required'); return; }
+    $('go').disabled = true;
+    log('local generate: ' + opts.resolution + (opts.referenceImage ? ' + ref' : ''));
+    try {
+      var r = await bridge.generate(opts);
+      if (!r.ok) {
+        if (isSafetyBlockedReason(r.reason)) showSafetyBlockedUi(r.reason);
+        log('failed: ' + (r.reason || 'unknown'));
+        return;
+      }
+      showImage(r.value && r.value.dataUrl);
+      log('done (' + (r.value && r.value.inputs && r.value.inputs.resolution || opts.resolution) + ')');
+    } catch (e) {
+      log('error: ' + (e && e.message));
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+
+  function embedUrl() {
+    var base = 'https://perchance.org/marinara-t2i-host';
+    try {
+      if (typeof window.generatorName === 'string') base = 'https://perchance.org/' + window.generatorName;
+    } catch (e) {}
+    return base + '?marinara=1';
+  }
+
+  $('go').addEventListener('click', generateLocal);
+  $('cg-save').addEventListener('click', saveContentGuardSettings);
+  $('cg-show-settings').addEventListener('click', function () {
+    if ($('content-guard-message')) $('content-guard-message').hidden = true;
+    if ($('content-guard-settings')) $('content-guard-settings').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  $('cg-duration').addEventListener('change', syncContentGuardOver18Area);
+  $('cg-over18-label').addEventListener('click', function () { $('cg-over18').click(); });
+  syncContentGuardOver18Area();
+  $('copy-url').addEventListener('click', function () {
+    var url = embedUrl();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { log('copied embed URL'); });
+    } else {
+      prompt('Copy Marinara embed URL:', url);
+    }
+  });
+  $('ref-file').addEventListener('change', onRefFileChange);
+  $('ref-clear').addEventListener('click', clearRef);
+  $('ref-url').addEventListener('change', function () {
+    var url = $('ref-url').value.trim();
+    if (url) setRefUrl(url, url);
+    else clearRef();
+  });
+  $('ref-blur').addEventListener('input', function () {
+    $('ref-blur-val').textContent = (Number($('ref-blur').value).toFixed(2)) + ' — lower = stronger likeness';
+    updateRefPreview();
+  });
+
+  $('proto').textContent = [
+    'Channel: ' + MSG,
+    'Child → parent: { channel, type: "ready", proto, build, generatorName, capabilities: ["image"] }',
+    'Parent → child: { channel, type: "request", cap: "image", nonce, payload: { prompt, resolution, guidanceScale, seed, referenceImage? } }',
+    '  referenceImage: { url: string, blur: number }  // blur 0–1; url = upload CDN or data: URL',
+    'Child → parent: { channel, type: "reply", nonce, result: { ok, value: { dataUrl, inputs } } | { ok:false, reason } }',
+    '',
+    'Embed URL: ' + embedUrl(),
+    'Queue: one image job at a time (Perchance t2i broker is serial).'
+  ].join('\n');
+
+  refreshStatus();
+  setInterval(refreshStatus, 2000);
+})();
+</script>
+</body>
+</html>

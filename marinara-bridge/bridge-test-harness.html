@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>marinara.bridge — local test harness</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --ok: #3dd68c;
+      --err: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 { margin: 0 0 0.25rem; font-size: 1.1rem; font-weight: 600; }
+    header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+    .banner {
+      margin-top: 0.75rem;
+      padding: 0.65rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid rgba(248, 113, 113, 0.45);
+      background: rgba(248, 113, 113, 0.08);
+      color: #fecaca;
+      font-size: 0.82rem;
+    }
+    .banner strong { color: #fff; }
+    .banner code { color: #fde68a; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(280px, 380px) 1fr;
+      gap: 1rem;
+      padding: 1rem 1.25rem 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.75rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 0.5rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font: inherit;
+      margin-bottom: 0.75rem;
+    }
+    textarea { min-height: 4.5rem; resize: vertical; }
+    .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .row label { margin: 0; display: flex; align-items: center; gap: 0.35rem; }
+    button {
+      font: inherit;
+      padding: 0.5rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #status-pill {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #3a3a3a;
+      color: #ccc;
+    }
+    #status-pill.ready { background: #1a3d2e; color: var(--ok); }
+    #status-pill.busy { background: #3d3420; color: #fbbf24; }
+    #status-pill.error { background: #3d1f1f; color: var(--err); }
+    #log {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.6rem;
+      height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #log .ok { color: var(--ok); }
+    #log .err { color: var(--err); }
+    #log .muted { color: var(--muted); }
+    #result-img {
+      max-width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #000;
+      display: none;
+    }
+    #result-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.5rem; }
+    .iframe-wrap {
+      position: relative;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #fff;
+      min-height: 200px;
+    }
+    .iframe-wrap.hidden { position: fixed; width: 1px; height: 1px; opacity: 0.01; left: -9999px; pointer-events: none; }
+    iframe { width: 100%; height: 480px; border: 0; display: block; }
+    .iframe-wrap.hidden iframe { width: 1px; height: 1px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>marinara.bridge test harness</h1>
+    <p>
+      Parent-frame tester for Perchance generators with <code>marinara-bridge-plugin</code> and
+      <code>?marinara=1</code>.
+    </p>
+    <div class="banner" role="alert">
+      <strong>Perchance blocks cross-origin iframes</strong> (<code>X-Frame-Options: sameorigin</code>).
+      This page cannot embed <code>perchance.org</code> from <code>file://</code> or localhost.
+      Use the <strong>console tester</strong> instead: open your fork on perchance.org, then paste
+      <code>bridge-console-snippet.js</code> into DevTools on the <em>top</em> tab.
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="card">
+        <h2>Generator</h2>
+        <label for="generator-url">Iframe URL</label>
+        <input id="generator-url" type="text" spellcheck="false"
+          value="https://perchance.org/bh3yiwwq00?marinara=1" />
+
+        <div class="row" style="margin-bottom: 0.75rem;">
+          <span>Bridge:</span>
+          <span id="status-pill">disconnected</span>
+          <label><input type="checkbox" id="show-iframe" /> show iframe</label>
+        </div>
+
+        <div class="row">
+          <button type="button" id="btn-reload">Reload iframe</button>
+          <button type="button" id="btn-ping">Ping</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 1rem;">
+        <h2>Generate</h2>
+        <label for="prompt">Prompt</label>
+        <textarea id="prompt">fantasy tavern interior at dusk, warm firelight, cinematic</textarea>
+
+        <label for="resolution">Resolution (Perchance t2i)</label>
+        <select id="resolution">
+          <option value="768x768">768×768 (square)</option>
+          <option value="768x512">768×512 (landscape)</option>
+          <option value="512x768">512×768 (portrait)</option>
+          <option value="512x512">512×512</option>
+        </select>
+
+        <label for="guidance">Guidance scale</label>
+        <input id="guidance" type="number" value="7" min="1" max="20" step="0.5" />
+
+        <label for="seed">Seed (−1 = random)</label>
+        <input id="seed" type="number" value="-1" step="1" />
+
+        <button type="button" id="btn-generate" class="primary" disabled>Generate image</button>
+      </div>
+
+      <div class="card" style="margin-top: 1rem;">
+        <h2>Log</h2>
+        <div id="log"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="card">
+        <h2>Perchance iframe</h2>
+        <div class="iframe-wrap hidden" id="iframe-wrap">
+          <iframe id="generator-frame" title="Perchance generator" src="about:blank"></iframe>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 1rem;">
+        <h2>Result</h2>
+        <img id="result-img" alt="Generated image" />
+        <div id="result-meta">No image yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Inlined from marinara-bridge-client.js (keeps this file usable via file://).
+    const CHANNEL = 'marinara.bridge';
+    const DEFAULT_TIMEOUT_MS = 180_000;
+
+    function nonce() {
+      return 'mb_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    class MarinaraPerchanceBridge {
+      constructor(iframe, opts = {}) {
+        this.iframe = iframe;
+        this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+        this._pending = new Map();
+        this._ready = null;
+        this._onMessage = this._onMessage.bind(this);
+        window.addEventListener('message', this._onMessage);
+      }
+
+      dispose() {
+        window.removeEventListener('message', this._onMessage);
+        for (const [, entry] of this._pending) clearTimeout(entry.timer);
+        this._pending.clear();
+        this._ready = null;
+      }
+
+      _targetWindow() {
+        return this.iframe?.contentWindow ?? null;
+      }
+
+      _onMessage(ev) {
+        const d = ev?.data;
+        if (!d || d.channel !== CHANNEL) return;
+        const win = this._targetWindow();
+        if (!win || ev.source !== win) return;
+
+        if (d.type === 'ready') {
+          this._ready = {
+            proto: d.proto,
+            build: d.build,
+            generatorName: d.generatorName,
+            capabilities: d.capabilities ?? [],
+          };
+          return;
+        }
+
+        if (d.type === 'reply') {
+          const id = String(d.nonce ?? '');
+          const entry = this._pending.get(id);
+          if (!entry) return;
+          clearTimeout(entry.timer);
+          this._pending.delete(id);
+          entry.resolve(d.result ?? { ok: false, reason: 'malformed reply' });
+        }
+      }
+
+      _post(obj) {
+        const win = this._targetWindow();
+        if (!win) throw new Error('iframe not loaded');
+        win.postMessage(obj, '*');
+      }
+
+      waitForReady(timeoutMs = 30_000) {
+        if (this._ready) return Promise.resolve(this._ready);
+        return new Promise((resolve, reject) => {
+          const started = Date.now();
+          const tick = () => {
+            if (this._ready) return resolve(this._ready);
+            if (Date.now() - started > timeoutMs) return reject(new Error('marinara.bridge ready timeout'));
+            setTimeout(tick, 100);
+          };
+          tick();
+        });
+      }
+
+      request(cap, payload) {
+        return new Promise((resolve, reject) => {
+          const id = nonce();
+          const timer = setTimeout(() => {
+            this._pending.delete(id);
+            reject(new Error('marinara.bridge request timeout'));
+          }, this.timeoutMs);
+          this._pending.set(id, { resolve, reject, timer });
+          this._post({ channel: CHANNEL, type: 'request', cap, nonce: id, payload: payload ?? {} });
+        });
+      }
+
+      async generateImage(payload) {
+        const result = await this.request('image', payload);
+        if (!result?.ok) throw new Error(result?.reason ?? 'image generation failed');
+        return result.value;
+      }
+
+      ping() {
+        const id = nonce();
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            this._pending.delete(id);
+            reject(new Error('ping timeout'));
+          }, 10_000);
+          this._pending.set(id, { resolve, reject, timer });
+          this._post({ channel: CHANNEL, type: 'ping', nonce: id });
+        });
+      }
+    }
+
+    // ── UI ─────────────────────────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const logEl = $('log');
+    const statusPill = $('status-pill');
+    const iframe = $('generator-frame');
+    const iframeWrap = $('iframe-wrap');
+    const btnGenerate = $('btn-generate');
+
+    let client = null;
+    let connectGen = 0;
+
+    function log(msg, cls) {
+      const line = document.createElement('div');
+      if (cls) line.className = cls;
+      const ts = new Date().toLocaleTimeString();
+      line.textContent = '[' + ts + '] ' + msg;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(state, text) {
+      statusPill.className = state;
+      statusPill.textContent = text;
+    }
+
+    function normalizeUrl(raw) {
+      const url = new URL(raw.trim());
+      if (!url.searchParams.has('marinara')) {
+        url.searchParams.set('marinara', '1');
+      }
+      return url.toString();
+    }
+
+    async function connect() {
+      const gen = ++connectGen;
+      if (client) {
+        client.dispose();
+        client = null;
+      }
+
+      btnGenerate.disabled = true;
+      setStatus('busy', 'loading…');
+      log('Loading iframe: ' + normalizeUrl($('generator-url').value), 'muted');
+
+      client = new MarinaraPerchanceBridge(iframe);
+      iframe.src = normalizeUrl($('generator-url').value);
+
+      try {
+        const ready = await client.waitForReady(60_000);
+        if (gen !== connectGen) return;
+        setStatus('ready', 'ready');
+        btnGenerate.disabled = false;
+        log(
+          'Bridge ready — proto ' + ready.proto + ', build ' + ready.build +
+          (ready.generatorName ? ', gen ' + ready.generatorName : ''),
+          'ok',
+        );
+      } catch (err) {
+        if (gen !== connectGen) return;
+        setStatus('error', 'timeout');
+        const msg = err?.message || String(err);
+        log('Ready failed: ' + msg, 'err');
+        if (/timeout|blocked|frame/i.test(msg) || location.protocol !== 'https:' || !/perchance\.org$/i.test(location.hostname)) {
+          log('Hint: perchance.org refuses embeds from this origin. Use bridge-console-snippet.js on the perchance.org tab.', 'err');
+        }
+      }
+    }
+
+    $('show-iframe').addEventListener('change', (e) => {
+      iframeWrap.classList.toggle('hidden', !e.target.checked);
+    });
+
+    $('btn-reload').addEventListener('click', () => connect());
+
+    $('btn-ping').addEventListener('click', async () => {
+      if (!client) return log('Not connected', 'err');
+      try {
+        setStatus('busy', 'ping…');
+        const pong = await client.ping();
+        if (!pong?.ok) throw new Error(pong?.reason ?? 'ping failed');
+        setStatus('ready', 'ready');
+        log('Ping OK: ' + JSON.stringify(pong.value ?? pong), 'ok');
+      } catch (err) {
+        setStatus('error', 'ping failed');
+        log('Ping failed: ' + (err?.message || err), 'err');
+      }
+    });
+
+    $('btn-generate').addEventListener('click', async () => {
+      if (!client) return log('Not connected', 'err');
+      const prompt = $('prompt').value.trim();
+      if (!prompt) return log('Prompt is empty', 'err');
+
+      const payload = {
+        prompt,
+        resolution: $('resolution').value,
+        guidanceScale: Number($('guidance').value) || 7,
+        seed: Number($('seed').value),
+      };
+
+      try {
+        btnGenerate.disabled = true;
+        setStatus('busy', 'generating…');
+        log('generateImage(' + JSON.stringify(payload) + ')', 'muted');
+
+        const started = Date.now();
+        const value = await client.generateImage(payload);
+        const ms = Date.now() - started;
+
+        const dataUrl = value?.dataUrl || (typeof value?.text === 'string' && value.text.startsWith('data:') ? value.text : null);
+        if (!dataUrl) {
+          throw new Error('No dataUrl in response: ' + JSON.stringify(value).slice(0, 200));
+        }
+
+        $('result-img').src = dataUrl;
+        $('result-img').style.display = 'block';
+        $('result-meta').textContent =
+          'Generated in ' + (ms / 1000).toFixed(1) + 's' +
+          (value.inputs ? ' — inputs: ' + JSON.stringify(value.inputs) : '');
+
+        setStatus('ready', 'ready');
+        log('Image OK (' + (ms / 1000).toFixed(1) + 's)', 'ok');
+      } catch (err) {
+        setStatus('error', 'gen failed');
+        log('Generate failed: ' + (err?.message || err), 'err');
+      } finally {
+        btnGenerate.disabled = false;
+      }
+    });
+
+    window.addEventListener('beforeunload', () => client?.dispose());
+    connect();
+  </script>
+</body>
+</html>
