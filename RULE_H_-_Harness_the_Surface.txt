@@ -1,0 +1,81 @@
+# Rule H — Harness the Surface
+
+Rules P, X and R each work ONE wire: P proves it after it runs, X forces it to fail-loud and
+fire-real, R attacks it. Rule H is the standing rig that drives the WHOLE surface the way a user —
+or an agent acting for one — actually does: a Playwright-style harness that addresses real
+**targets**, drives the real path, asserts the real result, and **corrects** when a target drifts,
+with every failure **noisy**. It is built to be run by an agent — the agent drives it, reads the
+loud output, fixes the target or the step, and re-runs. The Perchance sandbox swallows errors and
+ships no test runner of its own, so a script that breaks on a UI change looks identical to one that
+passed — unless you make failure impossible to miss.
+
+**The failure it prevents:** a brittle automation that "ran every step" and reported green while a
+renamed field, a not-yet-rendered element, or a swallowed exception meant it changed nothing — and
+a self-"correcting" harness that papered over a drifted target by silently acting on the WRONG
+element, which is worse than crashing.
+
+## The loop — target, drive, assert (each step, every run)
+
+- **Target, not coordinates.** Address an element by what it MEANS — role, visible text, a
+  `data-test` id — never a brittle `nth` / x-y / deep CSS path a re-render shifts. A target that
+  resolves to `null`, or to more than one, is a **failure** — logged loud, never a silent skip. (In
+  a gen: the generate button by its label, the preview container by id, a row by its key — not "the
+  3rd div".)
+- **Drive the real path.** Do what the user does, in order — click, type, generate, import, load the
+  table. Run the genuine handler, never a shortcut that bypasses it.
+- **Assert the observable.** After each step confirm the OBSERVABLE moved — the preview text changed,
+  the image rendered, the Dexie row landed, the DSL value arrived with the shape you assumed. "The
+  step ran / no error" is NOT "the step worked" — that is Rule X's effect wire, extended across a
+  sequence.
+
+## Correction — self-heal, but with a floor
+
+When a target won't resolve or an action doesn't land, CORRECT before you fail — then record it:
+- **Re-locate.** Try the fallback locator (role → text → test-id); the DOM re-rendered and the old
+  path moved.
+- **Retry with backoff.** It is **timing** — the element wasn't mounted yet, the plugin hadn't
+  loaded, the write hadn't flushed. A BOUNDED retry, never an infinite spin.
+- **Re-derive.** Read the target fresh from the CURRENT DOM/state instead of a stale handle.
+- **Record every correction.** `[harness: step] target drifted: <old> → <new>` — so drift is
+  VISIBLE, not hidden. A harness that silently heals is a harness that hides a real UI regression.
+
+⚠ **The floor:** a correction that still can't find the ONE right target, finds the wrong one / an
+ambiguous match, or would act blind, must **FAIL LOUD and STOP the step** — never auto-pass, never
+act on a guess. Correcting a *target* is self-healing; correcting an *assertion* — moving the
+goalpost so a dead step "passes" — is the cardinal sin. Don't. (Rule R: a surface that lies "all
+clear" is worse than one that crashes.)
+
+## Noisy by default (the sandbox swallows)
+
+Every failed target, failed assertion, caught exception, and applied correction PRINTS —
+`console.error('[harness: <step>]', detail)` — and lands on a standing **debug surface**: the last
+step, the current target, the last correction, the assertion diff (expected vs actual), and a
+DOM/preview snapshot at the point of failure. A seam that goes **silent** when it breaks is the bug
+you never see in production — wrap the risky line, confirm YOUR message is loud, leave the hook in.
+The harness's whole value to an agent is that one glance at the loud output says WHAT drifted and
+WHERE, so the fix is a read, not a hunt.
+
+## Standing + agent-runnable
+
+- **Keep it + seed it.** The harness re-runs in seconds, deterministically — seed any RNG, freeze the
+  clock where timing matters. A new target or step EXTENDS it; it is a gate, not a one-off script.
+- **Red on a dead wire.** It reports RED on an unresolved target or an un-landed effect — never
+  green-because-no-throw.
+- **Drive it from the agent.** The agent runs the harness, reads the noisy output + debug surface,
+  corrects the target/step (or the gen), and re-runs — the loud errors ARE the agent's correction
+  signal. A quiet harness gives the agent nothing to correct against.
+
+## Close-out checklist
+
+- [ ] Every step addresses a MEANINGFUL target (role/text/test-id); an unresolved or ambiguous target fails loud, never skips.
+- [ ] Every step asserts the OBSERVABLE moved (preview / DOM / Dexie / image / DSL), not just "it ran".
+- [ ] Correction re-locates / retries / re-derives AND records each drift (old → new); it NEVER moves an assertion to force a pass.
+- [ ] The correction floor holds: no right target → FAIL LOUD + STOP, never act on a guess.
+- [ ] Every failure and every correction is NOISY (console + debug surface: step, target, assertion diff, snapshot); you forced a break and confirmed YOUR error shows.
+- [ ] The harness is standing, seeded/deterministic, and goes RED on a dead target or un-landed effect — a gate, not a report.
+
+## In one line
+
+Drive the whole surface like a user does — by meaningful **targets**, asserting the real result;
+**correct** a drifted target but never a failed assertion; and make every miss and every correction
+**loud**, so the agent fixes it by reading, not hunting.

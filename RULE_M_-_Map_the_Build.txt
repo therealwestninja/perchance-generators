@@ -1,0 +1,76 @@
+# Rule M — Map the Build (and keep the map current)
+
+The rule a FRESH or RETURNING agent runs first, and keeps running. Rules P / X / R / H prove, force,
+attack and drive a wire; F and C build the thing; Rule M is the memory spine under all of them —
+**scope the build and its SEAMS before you cut code, record what you learn to disk as you go so it
+survives a cleared chat and hands off to the next agent, and keep the map current in the SAME change.**
+The Perchance sandbox keeps no project memory of its own and a cleared chat forgets everything, so an
+unrecorded finding is one you'll pay to rediscover — and a stale map is worse than none, because it
+lies to whoever trusts it next.
+
+**The failure it prevents:** a fresh/returning agent rebuilding the mental model from scratch (or from
+a note that drifted), re-breaking a gotcha someone already solved, or editing a system blind to the
+seams it crosses — and a map that falls out of sync with the code, so the next agent builds on a lie.
+
+## Orient before you touch (fresh or returning)
+
+- **Recall FIRST from the index** — the memory-cube index (`Memory.md` / `src/MEMORY_CUBE.md`, Rule 0
+  §12): the keyed points over the chronological logs. Keep points whose keys overlap your task, SKIP
+  `done` / `superseded→[id]` / out-of-scope (a hard predicate — keyword overlap never overrides it),
+  prefer `decision`/`gotcha`/`wire` and the freshest date, then CITE what you recalled.
+- **Read the seam map** (`src/CODE_REFERENCE.md`), the last handoff note (`src/TODO.md`), and the recent
+  `src/CHAT_LOG.md` tail. A returning agent re-reads to re-sync; a fresh agent reads to build the model
+  it never had. Check `src/ISSUES_FIXES.md` for the area you're about to touch — someone may already
+  have paid for this bug.
+
+## Scope the build AND its seams (write it down before you cut code)
+
+- **Name what you'll change — and the part agents skip, the SEAMS it crosses:** every producer→consumer
+  boundary (a DSL value reaching JS, a plugin call, a DOM write, a Dexie read/write, one system's output
+  another system reads). A bug lives at a seam far more often than inside a function.
+- **Write the scope + seam list to disk FIRST** (the `src/treeshake-worklist.md` shape). The scope line
+  is a contract you don't widen mid-flight; the seam list is exactly what you'll verify (Rule P/X) and
+  keep current (below). No scope on disk ⇒ you're building from memory that the next clear will erase.
+
+## Record as you learn (memory persistence + handoff)
+
+Memory that lives only in the chat dies when the chat clears. The MOMENT you learn something durable,
+write it to disk — don't batch it to the end, where a crash or a clear loses it:
+- a WIRE confirmed · a GOTCHA · a DECISION · a SPEC clarification → APPEND one keyed point to the cube
+  index (`Memory.md`/`MEMORY_CUBE.md`): keys + kind + date + status + one-line + a pointer to the full
+  record. **SUPERSEDE, never delete** (`superseded→[id]`).
+- a FIX → `src/ISSUES_FIXES.md` (symptom → cause → fix → what to watch when you touch that area again).
+- a dated change entry → `src/change.log` (what · why · what verified).
+- a **HANDOFF NOTE** → `src/TODO.md`: what's done, what's mid-flight, the next step, the open seam — so
+  the next agent (or you after a clear) picks up where you stopped, not from zero.
+
+## Verify, then record the verification
+
+"No error" is not done (Rule P/X). After wiring a seam, prove the REAL result — then RECORD what you
+verified and how, so the next agent trusts the map instead of re-checking blind. A seam written down as
+"wired" with no verification note is a CLAIM, not a fact. **Done = verified + recorded.**
+
+## Reference it while building — and keep the map CURRENT
+
+- **Consult the map before you touch a system** (you did, orienting) — and again the moment a seam
+  surprises you; a surprise means the map was wrong, so fix the map too.
+- **Update the map in the SAME change that changes the code.** A system gains/loses a hook → update
+  `src/CODE_REFERENCE.md`. A new durable fact → the cube index. A finished or abandoned step → the
+  handoff note. ⚠ A STALE map is worse than no map — it hands the next agent a lie they'll build on. The
+  map is a LIVING reference, not a start-of-project artifact: if you can't keep it current as you go, you
+  don't understand the change well enough to be making it.
+
+## Close-out checklist
+
+- [ ] Oriented first: recalled from the cube index (and CITED), read the seam map + handoff note + recent chat log, checked issues for the area.
+- [ ] Scope + SEAM list written to disk before cutting code; scope not widened mid-flight.
+- [ ] Every durable finding recorded AS it was learned (cube point · change.log · issues entry for a fix) — nothing left only in chat.
+- [ ] Each seam verified (Rule P/X) AND the verification recorded — "wired" never asserted without proof.
+- [ ] Handoff note left for the next agent (done · mid-flight · next step · open seam).
+- [ ] The map updated in the SAME change; the index (`Memory.md`/cube) current; superseded points marked, never deleted.
+
+## In one line
+
+Orient from the map before you build, write every durable finding and handoff to disk the moment you
+learn it, verify each seam and record the proof, and keep the map current in the same change — because
+the chat forgets, the next agent starts from the map, and a stale map lies.

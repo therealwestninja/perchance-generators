@@ -1,0 +1,73 @@
+# Rule O — Offset, Don't Flatten
+
+A design lens, not a procedure — reach for it at the forks, where Rule M (Map the Build) and Rule F
+(Factory Build) start. When two things look like they should be one, or one thing needs to grow a new
+capability, the reflex is to **copy** (a parallel duplicate generator/handler) or **flatten** (force
+both into one uniform shape). The better move is usually a **45° rotation**: the same substrate aimed
+in a new direction, so the new thing reuses the core arithmetic instead of forking it — and the
+differences that were load-bearing survive. You gain a capability without a second copy to keep in
+sync, and without destroying a distinction the generator relied on.
+
+**The failure it prevents:** two near-identical generators/handlers that drift apart (fix one, the
+other rots); OR a merge that looked clean and quietly deleted a real difference (light/dark stops
+collapsed to one, two distinct widgets forced into one shape) and now neither reads right.
+
+## The rotations — pick the one the situation fits
+
+- **New surface = an ADAPTER, not a new seam.** A second output target (another preview, an export,
+  a share view, a t2i prompt off the same text) reuses the shared generation through a thin adapter —
+  don't rebuild the generator per surface. A new AI capability is a new **prompt/role adapter** over
+  the SAME `aiTextPlugin` session, not a second plugin instance to wrangle.
+- **Scalar → VECTOR.** One blunt knob (difficulty, "tone", length) → rotate it into orthogonal
+  components, each a DSL list / slider the USER or the AI can turn: tone → warmth · formality ·
+  verbosity. Then the thing you didn't want to build falls out free — e.g. *adaptive* tone is just a
+  dial the generator turns itself by reading the chat, no separate system.
+- **Decouple, then carve (two generators, one seed).** Don't make a story generator and an
+  image-prompt generator (or a layout generator and a content generator) agree by MERGING them. Feed
+  both the SAME seed, let each run its own way, reconcile only at the seam with a small operator —
+  **carve** (cull to fit) · **filter** (gate what crosses) · **curate** (bias the mix) · **span**
+  (bridge a gap) · **reconcile-to-path** (snap to a spine). One seed, two generators, one seam.
+- **Generation ⇄ navigation are DUAL.** Lay-a-path and find-a-path are the same traversal from
+  opposite ends: a lorebook *writer* and a lorebook *matcher*, build-a-thread and search-a-thread.
+  Built one? You're most of the way to the other by rotating it, not writing it fresh.
+- **Value off the win axis.** An AI character's goal need not be "answer the user." Rotate value into
+  **goals-as-data** — curiosity, a mood, a secret — each with its own weight and cost, so it reads as
+  an agent with its own pull, not a responder.
+- **Aliveness is in LOOSENING couplings, not adding control.** A generator that feels mechanical
+  rarely needs another control list — it needs one coupling deliberately loosened so a value can
+  drift, with a damper to keep it in its lane. A robust generator absorbs a loose agent; a fragile one
+  gets another knob and stays dead.
+
+## When to ROTATE vs when to FLATTEN
+
+Flatten (collapse to one shape) only **true duplicates**; rotate (keep the offset) when the
+difference is **load-bearing**.
+- Consolidate: 3 spellings of one color; 3 identical DSL list/`<style>` blocks; a `localStorage`
+  prefix-sweep that should be an explicit key registry (also a Rule R under-capture trap).
+- KEEP (give them shared TOKENS or a shared substrate, but don't fuse): gradient light/dark stops,
+  depth/opacity ramps, two genuinely different widgets (a character card vs a stat row), two plugin
+  seams that legitimately differ.
+- The test, one line: *if I merge these, do I lose a distinction something relied on?* Yes → rotate
+  (shared substrate, distinct projection). No → flatten (hoist to one source — that's refactor work).
+
+## Anti-patterns
+
+- **Forcing uniformity** — merging things that only look alike, deleting a real distinction.
+- **Parallel copy** — forking the generator/handler per surface instead of adapting through one seam.
+- **Bigger knob** — escalating a scalar instead of rotating it into a vector.
+- **Merging generators** — fusing two systems to make them agree instead of decouple-then-carve.
+- **Adding control to force life** — clamping tighter when the fix was a looser coupling + a damper.
+
+## Close-out checklist
+
+- [ ] At the fork, you asked: copy / flatten / **rotate**? and named which, and why.
+- [ ] For any merge: you ran the one-line test and confirmed no load-bearing difference was lost.
+- [ ] A new surface went through a thin adapter on the shared substrate — not a forked copy.
+- [ ] After a decouple/reconcile, the seam was swept for wired-but-dark drift (the reverse-treeshake
+      pass in Rule 0 §10) and the shape locked in a test.
+
+## In one line
+
+When two things want to be one, or one needs to grow — **offset, don't flatten**: reuse the substrate
+at an angle (adapter · scalar→vector · decouple-then-carve · loosen-a-coupling), and keep every
+difference that was load-bearing.

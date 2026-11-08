@@ -1,0 +1,59 @@
+# Rule R — Red-Room the Surface
+
+Rule P proves a wire works; Rule X forces it to fail loud and fire real. Rule R goes one step
+further and **adversarial**: once the wire is proven, become the attacker and try to BREAK it — on
+purpose, before a user (or a crafted input) does. You built it to PASS; now spend a moment building
+the input that makes it misbehave. This matters most for a **decision surface** — anything that acts
+for the user, shows the user a result they'll trust and act on, renders untrusted text (AI output,
+user input, an imported `.json`/shared gen), or gates something. A feature that quietly does the
+wrong thing, or tells the user "all clear" when it isn't, is worse than one that crashes.
+
+**The failure it prevents:** a surface that passes every happy-path check and still (a) does the
+dangerous thing on a crafted input, (b) **lies to the user** — hides or misreports a consequence so
+they approve/trust what they'd refuse, or (c) swallows a fault and shows a benign result, so nobody
+ever learns it stopped working.
+
+## Three attacks — try each, worst first
+
+- **Can it act beyond its limit?** Craft the input that makes the surface do the thing it's meant to
+  prevent — write past its bounds, fire an effect it shouldn't, reach a target it shouldn't. A
+  *preview / check* surface has a cardinal sin: it ACTUATES. Drive it against a spy (a stubbed plugin
+  call / a fake table write that only records) and assert **zero** real effects.
+- **Can it lie to the user?** This is the subtle one. Hide the real consequence where the surface
+  won't look: a dangerous action nested inside a branch/loop the walker skips, reached indirectly
+  (through a scene / an import / a second hop), or evaluated under the wrong assumption (checked as if
+  the safe user ran it, when something less trusted will). If the user is shown "benign / allowed"
+  about something that will actually bite, that is the bug — even with no crash and no error.
+- **Can crafted input crash or corrupt it?** Fuzz the UNTRUSTED side — AI output, user text, an
+  imported gen, a stored blob: `null`, `{}`, a 100k-item array, a 10-deep nesting, `{"__proto__":{…}}`,
+  a circular ref, and a **name with `<img onerror=…>` / `"` / `'`** that reaches the DOM (yes, a
+  sandboxed generator can still self-XSS its own preview). Assert: no uncaught throw, it degrades, it
+  renders the hostile name **escaped** (treat every rendered value as data), and `({}).polluted` stays
+  undefined.
+
+## Fail-opens must SURFACE and fail SAFE
+
+Every `catch (e) {}`, `?? fallback`, `|| []`, `return null` is a place the code keeps going after
+something went wrong. Force each one (a throwing stub, a crafted input) and check **both**:
+
+1. **It surfaces.** `console.error('[name]', e)` (or a counter, a visible debug line, a result field
+   that says "errored") — a seam that goes **silent** when you fault it is a swallow, the failure you
+   never see in production. (This is Rule X's error wire, applied to every fallback, not just the plugin call.)
+2. **It fails safe, not benign.** On a decision/safety surface, a fallback that can't verify must
+   present **"couldn't check — treat as unsafe"**, never an empty list or an "all clear" that lulls the
+   user into trusting it. Fail CLOSED where it matters. (A pure *data* fallback — e.g. "couldn't load,
+   so fall through to the default source" — may stay quiet; a SAFETY fallback never may. Name which one
+   you're looking at.)
+
+## Close-out checklist
+
+- [ ] Threat model named in one line: can it act beyond its limit · lie to the user · crash/corrupt the host?
+- [ ] The act-beyond, the hide-the-consequence, and (for a preview/check) the does-it-actuate attacks were tried.
+- [ ] Untrusted input fuzzed (malformed · huge · nested · `__proto__` · circular · injection-in-a-name) — no throw, escaped on render, no false "all clear".
+- [ ] Every fail-open FORCED: it printed your error (not silent) AND returned a safe/flagged result (not benign).
+- [ ] You tried to make the safety claim FALSE and recorded the result — "found nothing" after an honest attack is evidence; not attacking is not.
+
+## In one line
+
+Don't just prove it works — **attack it**: build the input that makes it act beyond its limit, lie to
+the user, or crash; and force every fail-open to shout and fail safe, never silently say "all clear".
